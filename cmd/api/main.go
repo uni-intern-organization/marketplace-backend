@@ -1,0 +1,123 @@
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/joho/godotenv"
+	"github.com/rs/cors"
+	"github.com/uni-intern-organization/marketplace-backend/config"
+	"github.com/uni-intern-organization/marketplace-backend/internal/crypto"
+	"github.com/uni-intern-organization/marketplace-backend/internal/db"
+	"github.com/uni-intern-organization/marketplace-backend/internal/handler"
+	"github.com/uni-intern-organization/marketplace-backend/internal/middleware"
+	"github.com/uni-intern-organization/marketplace-backend/internal/repository"
+	"github.com/uni-intern-organization/marketplace-backend/internal/model"
+	"github.com/uni-intern-organization/marketplace-backend/internal/storage"
+)
+
+var allRoles = []model.UserRole{model.RoleStudent, model.RoleRecruiter, model.RoleAdmin}
+
+func main() {
+	_ = godotenv.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	pool, err := db.NewPool(ctx, &cfg.DB)
+	if err != nil {
+		log.Fatal("db:", err)
+	}
+	defer pool.Close()
+
+	if err := db.RunMigrations(ctx, pool); err != nil {
+		log.Fatal("migrations:", err)
+	}
+
+	s3Storage, err := storage.NewS3Storage(&cfg.S3)
+	if err != nil {
+		log.Fatal("s3:", err)
+	}
+	if err := s3Storage.EnsureBucket(ctx); err != nil {
+		log.Println("warning: ensure bucket:", err)
+	}
+
+	aesKey := crypto.KeyFromString(cfg.AES.Key)
+
+	userRepo := repository.NewUserRepository(pool)
+	recruiterRepo := repository.NewRecruiterProfileRepository(pool)
+	invRepo := repository.NewInvitationRepository(pool)
+	appRepo := repository.NewApplicationRepository(pool)
+
+	authHandler := handler.NewAuthHandler(userRepo, cfg.JWT.Secret, cfg.JWT.ExpireHours)
+	profileHandler := handler.NewProfileHandler(userRepo, recruiterRepo, aesKey)
+	fileHandler := handler.NewFileHandler(s3Storage, userRepo, recruiterRepo)
+	invitationHandler := handler.NewInvitationHandler(invRepo, userRepo, aesKey)
+	applicationHandler := handler.NewApplicationHandler(appRepo, invRepo, userRepo, aesKey)
+	searchHandler := handler.NewSearchHandler(pool)
+
+	mux := http.NewServeMux()
+
+	// Public
+	mux.HandleFunc("POST /api/auth/register", authHandler.Register)
+	mux.HandleFunc("POST /api/auth/login", authHandler.Login)
+
+	// Protected
+	authMiddleware := middleware.Auth(cfg.JWT.Secret)
+	mux.Handle("GET /api/me", authMiddleware(middleware.RequireRole(allRoles...)(http.HandlerFunc(profileHandler.GetMyProfile))))
+	mux.Handle("PUT /api/me/profile", authMiddleware(middleware.RequireRole(model.RoleStudent)(http.HandlerFunc(profileHandler.UpdateStudentProfile))))
+	mux.Handle("PATCH /api/me/profile", authMiddleware(middleware.RequireRole(model.RoleStudent)(http.HandlerFunc(profileHandler.UpdateStudentProfile))))
+	mux.Handle("PUT /api/me/recruiter", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(profileHandler.UpdateRecruiterProfile))))
+	mux.Handle("PATCH /api/me/recruiter", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(profileHandler.UpdateRecruiterProfile))))
+	mux.Handle("GET /api/users", authMiddleware(middleware.RequireRole(allRoles...)(http.HandlerFunc(profileHandler.GetUserByID))))
+	mux.Handle("POST /api/files/resume", authMiddleware(middleware.RequireRole(model.RoleStudent)(http.HandlerFunc(fileHandler.UploadResume))))
+	mux.Handle("POST /api/files/logo", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(fileHandler.UploadCompanyLogo))))
+	mux.Handle("GET /api/files/url", authMiddleware(middleware.RequireRole(allRoles...)(http.HandlerFunc(fileHandler.GetPresignedURL))))
+	mux.Handle("POST /api/invitations", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(invitationHandler.Create))))
+	mux.Handle("GET /api/invitations", authMiddleware(middleware.RequireRole(model.RoleStudent, model.RoleRecruiter)(http.HandlerFunc(invitationHandler.ListMine))))
+	mux.Handle("PATCH /api/invitations", authMiddleware(middleware.RequireRole(model.RoleStudent)(http.HandlerFunc(invitationHandler.UpdateStatus))))
+	mux.Handle("POST /api/applications", authMiddleware(middleware.RequireRole(model.RoleStudent)(http.HandlerFunc(applicationHandler.Create))))
+	mux.Handle("GET /api/applications", authMiddleware(middleware.RequireRole(model.RoleStudent, model.RoleRecruiter)(http.HandlerFunc(applicationHandler.ListMine))))
+	mux.Handle("PATCH /api/applications", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(applicationHandler.UpdateStatus))))
+	mux.Handle("GET /api/search/users", authMiddleware(middleware.RequireRole(model.RoleAdmin, model.RoleRecruiter)(http.HandlerFunc(searchHandler.SearchUsers))))
+
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+
+	corsHandler := cors.New(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		AllowCredentials: true,
+	}).Handler(mux)
+
+	srv := &http.Server{
+		Addr:    ":" + cfg.Server.Port,
+		Handler: corsHandler,
+	}
+	go func() {
+		log.Println("listening on :" + cfg.Server.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Println("shutdown:", err)
+	}
+}

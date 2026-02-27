@@ -35,6 +35,14 @@ type RecruiterProfileResponse struct {
 	LogoURL     *string `json:"logo_url,omitempty"`
 }
 
+// MeResponse — ответ GET /api/me: пользователь + профиль (если есть).
+type MeResponse struct {
+	UserID string      `json:"user_id"`
+	Email  string      `json:"email"`
+	Role   string      `json:"role"`
+	Profile interface{} `json:"profile,omitempty"`
+}
+
 func (h *ProfileHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -46,54 +54,56 @@ func (h *ProfileHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	out := MeResponse{
+		UserID: claims.UserID.String(),
+		Email:  claims.Email,
+		Role:   string(claims.Role),
+	}
+
 	switch claims.Role {
 	case model.RoleStudent:
-		p, err := h.userRepo.GetStudentProfileByUserID(r.Context(), claims.UserID)
-		if err != nil {
-			http.Error(w, `{"error":"profile not found"}`, http.StatusNotFound)
-			return
-		}
 		resp := StudentProfileResponse{}
-		if len(p.FullNameEnc) > 0 {
-			b, _ := crypto.Decrypt(p.FullNameEnc, h.aesKey)
-			resp.FullName = string(b)
+		p, err := h.userRepo.GetStudentProfileByUserID(r.Context(), claims.UserID)
+		if err == nil {
+			if len(p.FullNameEnc) > 0 {
+				b, _ := crypto.Decrypt(p.FullNameEnc, h.aesKey)
+				resp.FullName = string(b)
+			}
+			if len(p.PhoneEnc) > 0 {
+				b, _ := crypto.Decrypt(p.PhoneEnc, h.aesKey)
+				resp.Phone = string(b)
+			}
+			if len(p.BioEnc) > 0 {
+				b, _ := crypto.Decrypt(p.BioEnc, h.aesKey)
+				resp.Bio = string(b)
+			}
+			resp.ResumeURL = p.ResumeObjectKey
 		}
-		if len(p.PhoneEnc) > 0 {
-			b, _ := crypto.Decrypt(p.PhoneEnc, h.aesKey)
-			resp.Phone = string(b)
-		}
-		if len(p.BioEnc) > 0 {
-			b, _ := crypto.Decrypt(p.BioEnc, h.aesKey)
-			resp.Bio = string(b)
-		}
-		resp.ResumeURL = p.ResumeObjectKey
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		out.Profile = resp
 	case model.RoleRecruiter:
-		p, err := h.recruiterRepo.GetByUserID(r.Context(), claims.UserID)
-		if err != nil {
-			http.Error(w, `{"error":"profile not found"}`, http.StatusNotFound)
-			return
-		}
 		resp := RecruiterProfileResponse{}
-		if len(p.CompanyNameEnc) > 0 {
-			b, _ := crypto.Decrypt(p.CompanyNameEnc, h.aesKey)
-			resp.CompanyName = string(b)
+		p, err := h.recruiterRepo.GetByUserID(r.Context(), claims.UserID)
+		if err == nil {
+			if len(p.CompanyNameEnc) > 0 {
+				b, _ := crypto.Decrypt(p.CompanyNameEnc, h.aesKey)
+				resp.CompanyName = string(b)
+			}
+			if len(p.FullNameEnc) > 0 {
+				b, _ := crypto.Decrypt(p.FullNameEnc, h.aesKey)
+				resp.FullName = string(b)
+			}
+			if len(p.PhoneEnc) > 0 {
+				b, _ := crypto.Decrypt(p.PhoneEnc, h.aesKey)
+				resp.Phone = string(b)
+			}
+			resp.LogoURL = p.CompanyLogoObjectKey
 		}
-		if len(p.FullNameEnc) > 0 {
-			b, _ := crypto.Decrypt(p.FullNameEnc, h.aesKey)
-			resp.FullName = string(b)
-		}
-		if len(p.PhoneEnc) > 0 {
-			b, _ := crypto.Decrypt(p.PhoneEnc, h.aesKey)
-			resp.Phone = string(b)
-		}
-		resp.LogoURL = p.CompanyLogoObjectKey
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	default:
-		http.Error(w, `{"error":"no profile for admin"}`, http.StatusOK)
+		out.Profile = resp
+	case model.RoleAdmin:
+		out.Profile = map[string]string{"note": "admin has no profile"}
 	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
 }
 
 type UpdateStudentProfileRequest struct {

@@ -24,7 +24,7 @@ func NewFileHandler(s *storage.S3Storage, userRepo *repository.UserRepository, r
 }
 
 const maxResumeSize = 5 << 20  // 5 MB
-const maxLogoSize  = 2 << 20  // 2 MB
+const maxLogoSize  = 2 << 20   // 2 MB
 
 func (h *FileHandler) UploadResume(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -42,7 +42,10 @@ func (h *FileHandler) UploadResume(w http.ResponseWriter, r *http.Request) {
 	}
 	file, header, err := r.FormFile("resume")
 	if err != nil {
-		http.Error(w, `{"error":"resume file required"}`, http.StatusBadRequest)
+		file, header, err = r.FormFile("file")
+	}
+	if err != nil {
+		http.Error(w, `{"error":"resume file required (form field: resume or file)"}`, http.StatusBadRequest)
 		return
 	}
 	defer file.Close()

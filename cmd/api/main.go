@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/rs/cors"
 	"github.com/uni-intern-organization/marketplace-backend/config"
@@ -16,8 +17,8 @@ import (
 	"github.com/uni-intern-organization/marketplace-backend/internal/db"
 	"github.com/uni-intern-organization/marketplace-backend/internal/handler"
 	"github.com/uni-intern-organization/marketplace-backend/internal/middleware"
-	"github.com/uni-intern-organization/marketplace-backend/internal/repository"
 	"github.com/uni-intern-organization/marketplace-backend/internal/model"
+	"github.com/uni-intern-organization/marketplace-backend/internal/repository"
 	"github.com/uni-intern-organization/marketplace-backend/internal/storage"
 )
 
@@ -30,15 +31,27 @@ func main() {
 		log.Fatal(err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	pool, err := db.NewPool(ctx, &cfg.DB)
-	if err != nil {
-		log.Fatal("db:", err)
+	ctx := context.Background()
+
+	var pool *pgxpool.Pool
+	for i := 0; i < 15; i++ {
+		ctxConn, cancel := context.WithTimeout(ctx, 10*time.Second)
+		pool, err = db.NewPool(ctxConn, &cfg.DB)
+		cancel()
+		if err == nil {
+			break
+		}
+		log.Printf("db connect attempt %d: %v", i+1, err)
+		time.Sleep(2 * time.Second)
+	}
+	if pool == nil {
+		log.Fatal("db: could not connect")
 	}
 	defer pool.Close()
 
-	if err := db.RunMigrations(ctx, pool); err != nil {
+	ctxMig, cancelMig := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelMig()
+	if err := db.RunMigrations(ctxMig, pool); err != nil {
 		log.Fatal("migrations:", err)
 	}
 
@@ -46,8 +59,12 @@ func main() {
 	if err != nil {
 		log.Fatal("s3:", err)
 	}
-	if err := s3Storage.EnsureBucket(ctx); err != nil {
-		log.Println("warning: ensure bucket:", err)
+	for i := 0; i < 10; i++ {
+		if err := s3Storage.EnsureBucket(ctx); err == nil {
+			break
+		}
+		log.Printf("s3 bucket attempt %d: %v", i+1, err)
+		time.Sleep(2 * time.Second)
 	}
 
 	aesKey := crypto.KeyFromString(cfg.AES.Key)
@@ -66,11 +83,9 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Public
 	mux.HandleFunc("POST /api/auth/register", authHandler.Register)
 	mux.HandleFunc("POST /api/auth/login", authHandler.Login)
 
-	// Protected
 	authMiddleware := middleware.Auth(cfg.JWT.Secret)
 	mux.Handle("GET /api/me", authMiddleware(middleware.RequireRole(allRoles...)(http.HandlerFunc(profileHandler.GetMyProfile))))
 	mux.Handle("PUT /api/me/profile", authMiddleware(middleware.RequireRole(model.RoleStudent)(http.HandlerFunc(profileHandler.UpdateStudentProfile))))

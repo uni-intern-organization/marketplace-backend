@@ -23,7 +23,6 @@ type RegisterRequest struct {
 	Email    string       `json:"email"`
 	Password string       `json:"password"`
 	Role     model.UserRole `json:"role"`
-	// Optional profile payload for student/recruiter (handled in service)
 }
 
 type LoginRequest struct {

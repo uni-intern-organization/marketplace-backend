@@ -20,7 +20,7 @@ type S3Storage struct {
 func NewS3Storage(cfg *appconfig.S3Config) (*S3Storage, error) {
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		return aws.Endpoint{
-			URL:               fmt.Sprintf("http://%s", cfg.Endpoint),
+			URL:               fmt.Sprintf("http://%s", cf g.Endpoint),
 			SigningRegion:     cfg.Region,
 			HostnameImmutable: true,
 		}, nil

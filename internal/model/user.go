@@ -9,9 +9,9 @@ import (
 type UserRole string
 
 const (
-	RoleStudent  UserRole = "student"
+	RoleStudent   UserRole = "student"
 	RoleRecruiter UserRole = "recruiter"
-	RoleAdmin    UserRole = "admin"
+	RoleAdmin     UserRole = "admin"
 )
 
 type User struct {
@@ -24,53 +24,62 @@ type User struct {
 }
 
 type StudentProfile struct {
-	ID               uuid.UUID
-	UserID           uuid.UUID
-	FullNameEnc      []byte
-	PhoneEnc         []byte
-	BioEnc           []byte
-	ResumeObjectKey  *string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID              uuid.UUID
+	UserID          uuid.UUID
+	FullNameEnc     []byte
+	PhoneEnc        []byte
+	BioEnc          []byte
+	ResumeObjectKey *string
+	Skills          string // comma-separated for matching
+	Education       string
+	ExperienceYears int
+	Location        string
+	Availability    string // remote, hybrid, onsite
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type RecruiterProfile struct {
-	ID                  uuid.UUID
-	UserID              uuid.UUID
-	CompanyNameEnc      []byte
-	FullNameEnc         []byte
-	PhoneEnc            []byte
+	ID                   uuid.UUID
+	UserID               uuid.UUID
+	CompanyNameEnc       []byte
+	FullNameEnc          []byte
+	PhoneEnc             []byte
 	CompanyLogoObjectKey *string
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type Invitation struct {
-	ID         uuid.UUID
+	ID          uuid.UUID
 	RecruiterID uuid.UUID
-	StudentID  uuid.UUID
-	MessageEnc []byte
-	Status     string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	StudentID   uuid.UUID
+	MessageEnc  []byte
+	Status      string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type Application struct {
-	ID           uuid.UUID
-	StudentID    uuid.UUID
-	RecruiterID  uuid.UUID
-	InvitationID *uuid.UUID
+	ID             uuid.UUID
+	StudentID      uuid.UUID
+	RecruiterID    uuid.UUID
+	InvitationID   *uuid.UUID
 	CoverLetterEnc []byte
-	Status       string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	Status         string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type Vacancy struct {
-	ID          uuid.UUID
-	RecruiterID uuid.UUID
-	TitleEnc    []byte
-	DescriptionEnc []byte
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID                 uuid.UUID
+	RecruiterID        uuid.UUID
+	TitleEnc           []byte
+	DescriptionEnc     []byte
+	RequiredSkills     string // comma-separated
+	Location           string
+	EmploymentType     string // remote, hybrid, onsite
+	MinExperienceYears int
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }

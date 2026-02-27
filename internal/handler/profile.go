@@ -12,9 +12,9 @@ import (
 )
 
 type ProfileHandler struct {
-	userRepo     *repository.UserRepository
+	userRepo      *repository.UserRepository
 	recruiterRepo *repository.RecruiterProfileRepository
-	aesKey       []byte
+	aesKey        []byte
 }
 
 func NewProfileHandler(userRepo *repository.UserRepository, recruiterRepo *repository.RecruiterProfileRepository, aesKey []byte) *ProfileHandler {
@@ -22,10 +22,15 @@ func NewProfileHandler(userRepo *repository.UserRepository, recruiterRepo *repos
 }
 
 type StudentProfileResponse struct {
-	FullName string  `json:"full_name,omitempty"`
-	Phone    string  `json:"phone,omitempty"`
-	Bio      string  `json:"bio,omitempty"`
-	ResumeURL *string `json:"resume_url,omitempty"`
+	FullName        string  `json:"full_name,omitempty"`
+	Phone           string  `json:"phone,omitempty"`
+	Bio             string  `json:"bio,omitempty"`
+	ResumeURL       *string `json:"resume_url,omitempty"`
+	Skills          string  `json:"skills,omitempty"`
+	Education       string  `json:"education,omitempty"`
+	ExperienceYears int     `json:"experience_years,omitempty"`
+	Location        string  `json:"location,omitempty"`
+	Availability    string  `json:"availability,omitempty"`
 }
 
 type RecruiterProfileResponse struct {
@@ -37,9 +42,9 @@ type RecruiterProfileResponse struct {
 
 // MeResponse — ответ GET /api/me: пользователь + профиль (если есть).
 type MeResponse struct {
-	UserID string      `json:"user_id"`
-	Email  string      `json:"email"`
-	Role   string      `json:"role"`
+	UserID  string      `json:"user_id"`
+	Email   string      `json:"email"`
+	Role    string      `json:"role"`
 	Profile interface{} `json:"profile,omitempty"`
 }
 
@@ -78,6 +83,11 @@ func (h *ProfileHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 				resp.Bio = string(b)
 			}
 			resp.ResumeURL = p.ResumeObjectKey
+			resp.Skills = p.Skills
+			resp.Education = p.Education
+			resp.ExperienceYears = p.ExperienceYears
+			resp.Location = p.Location
+			resp.Availability = p.Availability
 		}
 		out.Profile = resp
 	case model.RoleRecruiter:
@@ -107,9 +117,14 @@ func (h *ProfileHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateStudentProfileRequest struct {
-	FullName string `json:"full_name"`
-	Phone    string `json:"phone"`
-	Bio      string `json:"bio"`
+	FullName        string `json:"full_name"`
+	Phone           string `json:"phone"`
+	Bio             string `json:"bio"`
+	Skills          string `json:"skills"`
+	Education       string `json:"education"`
+	ExperienceYears int    `json:"experience_years"`
+	Location        string `json:"location"`
+	Availability    string `json:"availability"`
 }
 
 func (h *ProfileHandler) UpdateStudentProfile(w http.ResponseWriter, r *http.Request) {
@@ -150,11 +165,28 @@ func (h *ProfileHandler) UpdateStudentProfile(w http.ResponseWriter, r *http.Req
 			return
 		}
 	}
+	var skillsPtr, educationPtr, locationPtr, availabilityPtr *string
+	var expPtr *int
+	if req.Skills != "" {
+		skillsPtr = &req.Skills
+	}
+	if req.Education != "" {
+		educationPtr = &req.Education
+	}
+	if req.Location != "" {
+		locationPtr = &req.Location
+	}
+	if req.Availability != "" {
+		availabilityPtr = &req.Availability
+	}
+	if req.ExperienceYears > 0 {
+		expPtr = &req.ExperienceYears
+	}
 	_, err = h.userRepo.GetStudentProfileByUserID(r.Context(), claims.UserID)
 	if err != nil {
-		_, err = h.userRepo.CreateStudentProfile(r.Context(), claims.UserID, fullNameEnc, phoneEnc, bioEnc)
+		_, err = h.userRepo.CreateStudentProfile(r.Context(), claims.UserID, fullNameEnc, phoneEnc, bioEnc, req.Skills, req.Education, req.Location, req.Availability, req.ExperienceYears)
 	} else {
-		err = h.userRepo.UpdateStudentProfile(r.Context(), claims.UserID, fullNameEnc, phoneEnc, bioEnc, nil)
+		err = h.userRepo.UpdateStudentProfile(r.Context(), claims.UserID, fullNameEnc, phoneEnc, bioEnc, nil, skillsPtr, educationPtr, locationPtr, availabilityPtr, expPtr)
 	}
 	if err != nil {
 		http.Error(w, `{"error":"failed to save profile"}`, http.StatusInternalServerError)

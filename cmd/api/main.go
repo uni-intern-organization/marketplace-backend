@@ -73,13 +73,16 @@ func main() {
 	recruiterRepo := repository.NewRecruiterProfileRepository(pool)
 	invRepo := repository.NewInvitationRepository(pool)
 	appRepo := repository.NewApplicationRepository(pool)
+	vacancyRepo := repository.NewVacancyRepository(pool)
 
 	authHandler := handler.NewAuthHandler(userRepo, cfg.JWT.Secret, cfg.JWT.ExpireHours)
 	profileHandler := handler.NewProfileHandler(userRepo, recruiterRepo, aesKey)
 	fileHandler := handler.NewFileHandler(s3Storage, userRepo, recruiterRepo)
 	invitationHandler := handler.NewInvitationHandler(invRepo, userRepo, aesKey)
 	applicationHandler := handler.NewApplicationHandler(appRepo, invRepo, userRepo, aesKey)
-	searchHandler := handler.NewSearchHandler(pool)
+	vacancyHandler := handler.NewVacancyHandler(vacancyRepo, userRepo, aesKey)
+	matchHandler := handler.NewMatchHandler(vacancyRepo, userRepo, aesKey)
+	searchHandler := handler.NewSearchHandler(pool, userRepo)
 
 	mux := http.NewServeMux()
 
@@ -102,7 +105,16 @@ func main() {
 	mux.Handle("POST /api/applications", authMiddleware(middleware.RequireRole(model.RoleStudent)(http.HandlerFunc(applicationHandler.Create))))
 	mux.Handle("GET /api/applications", authMiddleware(middleware.RequireRole(model.RoleStudent, model.RoleRecruiter)(http.HandlerFunc(applicationHandler.ListMine))))
 	mux.Handle("PATCH /api/applications", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(applicationHandler.UpdateStatus))))
+	mux.Handle("POST /api/vacancies", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(vacancyHandler.Create))))
+	mux.Handle("GET /api/vacancies", authMiddleware(middleware.RequireRole(allRoles...)(http.HandlerFunc(vacancyHandler.GetOrList))))
+	mux.Handle("GET /api/vacancies/mine", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(vacancyHandler.ListMine))))
+	mux.Handle("PUT /api/vacancies", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(vacancyHandler.Update))))
+	mux.Handle("PATCH /api/vacancies", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(vacancyHandler.Update))))
+	mux.Handle("DELETE /api/vacancies", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(vacancyHandler.Delete))))
+	mux.Handle("GET /api/match/vacancy", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(matchHandler.CandidatesForVacancy))))
+	mux.Handle("GET /api/match/recommendations", authMiddleware(middleware.RequireRole(model.RoleStudent)(http.HandlerFunc(matchHandler.RecommendationsForStudent))))
 	mux.Handle("GET /api/search/users", authMiddleware(middleware.RequireRole(model.RoleAdmin, model.RoleRecruiter)(http.HandlerFunc(searchHandler.SearchUsers))))
+	mux.Handle("GET /api/search/students", authMiddleware(middleware.RequireRole(model.RoleAdmin, model.RoleRecruiter)(http.HandlerFunc(searchHandler.SearchStudents))))
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

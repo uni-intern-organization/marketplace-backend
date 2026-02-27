@@ -485,7 +485,7 @@ Content-Type для JSON: `application/json`
 | 2  | POST  | `/api/auth/register` | JSON: email, password, role |
 | 3  | POST  | `/api/auth/login` | JSON: email, password |
 | 4  | GET   | `/api/me` | Header: Authorization |
-| 5  | PUT/PATCH | `/api/me/profile` | JSON: full_name?, phone?, bio? |
+| 5  | PUT/PATCH | `/api/me/profile` | JSON: full_name?, phone?, bio?, skills?, education?, experience_years?, location?, availability? |
 | 6  | PUT/PATCH | `/api/me/recruiter` | JSON: company_name?, full_name?, phone? |
 | 7  | GET   | `/api/users?id=<uuid>` | Query: id |
 | 8  | POST  | `/api/files/resume` | multipart: resume или file (PDF) |
@@ -498,5 +498,13 @@ Content-Type для JSON: `application/json`
 | 15 | GET   | `/api/applications` | — |
 | 16 | PATCH | `/api/applications?id=<uuid>` | JSON: status (viewed\|accepted\|rejected) |
 | 17 | GET   | `/api/search/users?role=&email=` | Query: role?, email? |
+| 18 | POST  | `/api/vacancies` | JSON: title, description?, required_skills?, location?, employment_type?, min_experience_years? |
+| 19 | GET   | `/api/vacancies` | — (список) или ?id=<uuid> (одна вакансия) |
+| 20 | GET   | `/api/vacancies/mine` | — (вакансии текущего рекрутера) |
+| 21 | PUT/PATCH | `/api/vacancies?id=<uuid>` | JSON: title?, description?, required_skills?, location?, employment_type?, min_experience_years? |
+| 22 | DELETE | `/api/vacancies?id=<uuid>` | — |
+| 23 | GET   | `/api/match/vacancy?id=<vacancy_uuid>` | — (кандидаты по вакансии, recruiter) |
+| 24 | GET   | `/api/match/recommendations` | — (рекомендованные вакансии, student) |
+| 25 | GET   | `/api/search/students?skills=&experience_min=&location=&education=` | Query: skills?, experience_min?, location?, education? (recruiter/admin) |
 
 Ошибки от API приходят в JSON: `{"error": "текст ошибки"}`.

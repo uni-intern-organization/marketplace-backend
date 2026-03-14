@@ -48,6 +48,14 @@ type MeResponse struct {
 	Profile interface{} `json:"profile,omitempty"`
 }
 
+// UserByIDResponse — ответ GET /api/users?id=: id, email, role и при запросе студента — полный профиль (навыки, образование, опыт и т.д.).
+type UserByIDResponse struct {
+	ID      string                  `json:"id"`
+	Email   string                  `json:"email"`
+	Role    string                  `json:"role"`
+	Profile *StudentProfileResponse `json:"profile,omitempty"`
+}
+
 func (h *ProfileHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -276,7 +284,11 @@ func (h *ProfileHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 		return
 	}
-	if claims.Role != model.RoleAdmin && claims.UserID != id {
+	// Разрешаем:
+	// - администратору — любого пользователя,
+	// - рекрутеру — любого пользователя (в т.ч. студента из заявки),
+	// - обычному пользователю — только самого себя.
+	if claims.Role != model.RoleAdmin && claims.Role != model.RoleRecruiter && claims.UserID != id {
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 		return
 	}
@@ -285,6 +297,36 @@ func (h *ProfileHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"user not found"}`, http.StatusNotFound)
 		return
 	}
+	out := UserByIDResponse{
+		ID:    user.ID.String(),
+		Email: user.Email,
+		Role:  string(user.Role),
+	}
+	if user.Role == model.RoleStudent {
+		p, err := h.userRepo.GetStudentProfileByUserID(r.Context(), id)
+		if err == nil {
+			resp := StudentProfileResponse{}
+			if len(p.FullNameEnc) > 0 {
+				b, _ := crypto.Decrypt(p.FullNameEnc, h.aesKey)
+				resp.FullName = string(b)
+			}
+			if len(p.PhoneEnc) > 0 {
+				b, _ := crypto.Decrypt(p.PhoneEnc, h.aesKey)
+				resp.Phone = string(b)
+			}
+			if len(p.BioEnc) > 0 {
+				b, _ := crypto.Decrypt(p.BioEnc, h.aesKey)
+				resp.Bio = string(b)
+			}
+			resp.ResumeURL = p.ResumeObjectKey
+			resp.Skills = p.Skills
+			resp.Education = p.Education
+			resp.ExperienceYears = p.ExperienceYears
+			resp.Location = p.Location
+			resp.Availability = p.Availability
+			out.Profile = &resp
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(UserResponse{ID: user.ID.String(), Email: user.Email, Role: user.Role})
+	json.NewEncoder(w).Encode(out)
 }

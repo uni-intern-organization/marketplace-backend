@@ -25,6 +25,7 @@ func NewVacancyHandler(vacancyRepo *repository.VacancyRepository, userRepo *repo
 type CreateVacancyRequest struct {
 	Title              string `json:"title"`
 	Description        string `json:"description"`
+	CompanyName        string `json:"company_name"`
 	RequiredSkills     string `json:"required_skills"`
 	Location           string `json:"location"`
 	EmploymentType     string `json:"employment_type"`
@@ -36,6 +37,7 @@ type VacancyResponse struct {
 	RecruiterID        string `json:"recruiter_id"`
 	Title              string `json:"title"`
 	Description        string `json:"description"`
+	CompanyName        string `json:"company_name"`
 	RequiredSkills     string `json:"required_skills"`
 	Location           string `json:"location"`
 	EmploymentType     string `json:"employment_type"`
@@ -47,6 +49,7 @@ func vacancyToResponse(v *model.Vacancy, aesKey []byte) VacancyResponse {
 	resp := VacancyResponse{
 		ID:                 v.ID.String(),
 		RecruiterID:        v.RecruiterID.String(),
+		CompanyName:        v.CompanyName,
 		RequiredSkills:     v.RequiredSkills,
 		Location:           v.Location,
 		EmploymentType:     v.EmploymentType,
@@ -83,13 +86,17 @@ func (h *VacancyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"title required"}`, http.StatusBadRequest)
 		return
 	}
+	if req.CompanyName == "" {
+		http.Error(w, `{"error":"company_name required"}`, http.StatusBadRequest)
+		return
+	}
 	titleEnc, err := crypto.Encrypt([]byte(req.Title), h.aesKey)
 	if err != nil {
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		return
 	}
 	descEnc, _ := crypto.Encrypt([]byte(req.Description), h.aesKey)
-	v, err := h.vacancyRepo.Create(r.Context(), claims.UserID, titleEnc, descEnc, req.RequiredSkills, req.Location, req.EmploymentType, req.MinExperienceYears)
+	v, err := h.vacancyRepo.Create(r.Context(), claims.UserID, titleEnc, descEnc, req.CompanyName, req.RequiredSkills, req.Location, req.EmploymentType, req.MinExperienceYears)
 	if err != nil {
 		http.Error(w, `{"error":"failed to create vacancy"}`, http.StatusInternalServerError)
 		return
@@ -195,6 +202,7 @@ func (h *VacancyHandler) ListMine(w http.ResponseWriter, r *http.Request) {
 type UpdateVacancyRequest struct {
 	Title              string `json:"title"`
 	Description        string `json:"description"`
+	CompanyName        string `json:"company_name"`
 	RequiredSkills     string `json:"required_skills"`
 	Location           string `json:"location"`
 	EmploymentType     string `json:"employment_type"`
@@ -228,7 +236,7 @@ func (h *VacancyHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	titleEnc, _ := crypto.Encrypt([]byte(req.Title), h.aesKey)
 	descEnc, _ := crypto.Encrypt([]byte(req.Description), h.aesKey)
-	if err := h.vacancyRepo.Update(r.Context(), id, claims.UserID, titleEnc, descEnc, req.RequiredSkills, req.Location, req.EmploymentType, req.MinExperienceYears); err != nil {
+	if err := h.vacancyRepo.Update(r.Context(), id, claims.UserID, titleEnc, descEnc, req.CompanyName, req.RequiredSkills, req.Location, req.EmploymentType, req.MinExperienceYears); err != nil {
 		http.Error(w, `{"error":"vacancy not found or forbidden"}`, http.StatusNotFound)
 		return
 	}

@@ -16,14 +16,14 @@ func NewApplicationRepository(pool *pgxpool.Pool) *ApplicationRepository {
 	return &ApplicationRepository{pool: pool}
 }
 
-func (r *ApplicationRepository) Create(ctx context.Context, studentID, recruiterID uuid.UUID, invitationID *uuid.UUID, coverLetterEnc []byte) (*model.Application, error) {
+func (r *ApplicationRepository) Create(ctx context.Context, studentID, recruiterID, vacancyID uuid.UUID, invitationID *uuid.UUID, coverLetterEnc []byte) (*model.Application, error) {
 	var app model.Application
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO applications (student_id, recruiter_id, invitation_id, cover_letter_enc, status)
-		VALUES ($1, $2, $3, $4, 'submitted')
-		RETURNING id, student_id, recruiter_id, invitation_id, cover_letter_enc, status, created_at, updated_at
-	`, studentID, recruiterID, invitationID, coverLetterEnc).Scan(
-		&app.ID, &app.StudentID, &app.RecruiterID, &app.InvitationID, &app.CoverLetterEnc, &app.Status, &app.CreatedAt, &app.UpdatedAt,
+		INSERT INTO applications (student_id, recruiter_id, vacancy_id, invitation_id, cover_letter_enc, status)
+		VALUES ($1, $2, $3, $4, $5, 'submitted')
+		RETURNING id, student_id, recruiter_id, vacancy_id, invitation_id, cover_letter_enc, status, created_at, updated_at
+	`, studentID, recruiterID, vacancyID, invitationID, coverLetterEnc).Scan(
+		&app.ID, &app.StudentID, &app.RecruiterID, &app.VacancyID, &app.InvitationID, &app.CoverLetterEnc, &app.Status, &app.CreatedAt, &app.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -34,9 +34,9 @@ func (r *ApplicationRepository) Create(ctx context.Context, studentID, recruiter
 func (r *ApplicationRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.Application, error) {
 	var app model.Application
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, student_id, recruiter_id, invitation_id, cover_letter_enc, status, created_at, updated_at
+		SELECT id, student_id, recruiter_id, vacancy_id, invitation_id, cover_letter_enc, status, created_at, updated_at
 		FROM applications WHERE id = $1
-	`, id).Scan(&app.ID, &app.StudentID, &app.RecruiterID, &app.InvitationID, &app.CoverLetterEnc, &app.Status, &app.CreatedAt, &app.UpdatedAt)
+	`, id).Scan(&app.ID, &app.StudentID, &app.RecruiterID, &app.VacancyID, &app.InvitationID, &app.CoverLetterEnc, &app.Status, &app.CreatedAt, &app.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (r *ApplicationRepository) GetByID(ctx context.Context, id uuid.UUID) (*mod
 
 func (r *ApplicationRepository) ListByStudent(ctx context.Context, studentID uuid.UUID) ([]model.Application, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, student_id, recruiter_id, invitation_id, cover_letter_enc, status, created_at, updated_at
+		SELECT id, student_id, recruiter_id, vacancy_id, invitation_id, cover_letter_enc, status, created_at, updated_at
 		FROM applications WHERE student_id = $1 ORDER BY created_at DESC
 	`, studentID)
 	if err != nil {
@@ -55,7 +55,7 @@ func (r *ApplicationRepository) ListByStudent(ctx context.Context, studentID uui
 	var list []model.Application
 	for rows.Next() {
 		var app model.Application
-		if err := rows.Scan(&app.ID, &app.StudentID, &app.RecruiterID, &app.InvitationID, &app.CoverLetterEnc, &app.Status, &app.CreatedAt, &app.UpdatedAt); err != nil {
+		if err := rows.Scan(&app.ID, &app.StudentID, &app.RecruiterID, &app.VacancyID, &app.InvitationID, &app.CoverLetterEnc, &app.Status, &app.CreatedAt, &app.UpdatedAt); err != nil {
 			return nil, err
 		}
 		list = append(list, app)
@@ -65,7 +65,7 @@ func (r *ApplicationRepository) ListByStudent(ctx context.Context, studentID uui
 
 func (r *ApplicationRepository) ListByRecruiter(ctx context.Context, recruiterID uuid.UUID) ([]model.Application, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, student_id, recruiter_id, invitation_id, cover_letter_enc, status, created_at, updated_at
+		SELECT id, student_id, recruiter_id, vacancy_id, invitation_id, cover_letter_enc, status, created_at, updated_at
 		FROM applications WHERE recruiter_id = $1 ORDER BY created_at DESC
 	`, recruiterID)
 	if err != nil {
@@ -75,7 +75,7 @@ func (r *ApplicationRepository) ListByRecruiter(ctx context.Context, recruiterID
 	var list []model.Application
 	for rows.Next() {
 		var app model.Application
-		if err := rows.Scan(&app.ID, &app.StudentID, &app.RecruiterID, &app.InvitationID, &app.CoverLetterEnc, &app.Status, &app.CreatedAt, &app.UpdatedAt); err != nil {
+		if err := rows.Scan(&app.ID, &app.StudentID, &app.RecruiterID, &app.VacancyID, &app.InvitationID, &app.CoverLetterEnc, &app.Status, &app.CreatedAt, &app.UpdatedAt); err != nil {
 			return nil, err
 		}
 		list = append(list, app)

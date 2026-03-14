@@ -182,22 +182,37 @@ Content-Type для JSON: `application/json`
 
 ## 7. Получить пользователя по ID
 
+Используется, в частности, когда рекрутер открывает профиль студента из заявки. Рекрутер и админ могут запрашивать любого пользователя; остальные — только себя.
+
 **URL:** `http://localhost:8081/api/users?id=<uuid>`  
 **Метод:** `GET`  
 **Заголовки:** `Authorization: Bearer <token>`  
-**Query-параметры:** `id` — UUID пользователя  
+**Query-параметры:** `id` — UUID пользователя (например, student_id из заявки)  
 **Тело:** нет  
 
 **Пример запроса:** `GET http://localhost:8081/api/users?id=550e8400-e29b-41d4-a716-446655440000`
 
-**Пример ответа (200):**
+**Пример ответа (200) — пользователь-студент (возвращается полный профиль):**
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "email": "student@test.com",
-  "role": "student"
+  "role": "student",
+  "profile": {
+    "full_name": "Иван Иванов",
+    "phone": "+79001234567",
+    "bio": "О себе",
+    "resume_url": "resumes/550e8400-.../file.pdf",
+    "skills": "Go, PostgreSQL, Docker",
+    "education": "Университет, 3 курс",
+    "experience_years": 0,
+    "location": "Алматы",
+    "availability": "remote"
+  }
 }
 ```
+
+Для пользователя без профиля или не-студента поле `profile` отсутствует или пусто. При отсутствии пользователя с указанным id — **404** (фронт: «Кандидат не найден»).
 
 ---
 
@@ -374,6 +389,7 @@ Content-Type для JSON: `application/json`
 ```json
 {
   "recruiter_id": "660e8400-e29b-41d4-a716-446655440001",
+  "vacancy_id": "550e8400-e29b-41d4-a716-446655440000",
   "invitation_id": "inv-uuid-...",
   "cover_letter": "Хочу присоединиться к вашей команде"
 }
@@ -382,6 +398,7 @@ Content-Type для JSON: `application/json`
 | Поле          | Тип   | Обязательно | Описание                |
 |---------------|-------|-------------|-------------------------|
 | recruiter_id  | string| да          | UUID рекрутера          |
+| vacancy_id    | string| да          | UUID вакансии           |
 | invitation_id | string| нет         | UUID приглашения        |
 | cover_letter  | string| нет         | Сопроводительное письмо |
 
@@ -391,6 +408,9 @@ Content-Type для JSON: `application/json`
   "id": "app-uuid-...",
   "student_id": "550e8400-...",
   "recruiter_id": "660e8400-...",
+  "vacancy_id": "550e8400-e29b-41d4-a716-446655440000",
+  "vacancy_title": "Junior Go developer",
+  "recruiter_company_name": "Uniintern",
   "cover_letter": "Хочу присоединиться к вашей команде",
   "status": "pending",
   "created_at": "2025-02-23T12:00:00Z"
@@ -414,6 +434,9 @@ Content-Type для JSON: `application/json`
     "id": "app-uuid-...",
     "student_id": "550e8400-...",
     "recruiter_id": "660e8400-...",
+    "vacancy_id": "550e8400-e29b-41d4-a716-446655440000",
+    "vacancy_title": "Junior Go developer",
+    "recruiter_company_name": "Uniintern",
     "cover_letter": "Текст письма",
     "status": "pending",
     "created_at": "2025-02-23T12:00:00Z"
@@ -494,8 +517,8 @@ Content-Type для JSON: `application/json`
 | 11 | POST  | `/api/invitations` | JSON: student_id, message? |
 | 12 | GET   | `/api/invitations` | — |
 | 13 | PATCH | `/api/invitations?id=<uuid>` | JSON: status (accepted\|declined) |
-| 14 | POST  | `/api/applications` | JSON: recruiter_id, invitation_id?, cover_letter? |
-| 15 | GET   | `/api/applications` | — |
+| 14 | POST  | `/api/applications` | JSON: recruiter_id, vacancy_id, invitation_id?, cover_letter? |
+| 15 | GET   | `/api/applications` | — (каждый элемент содержит vacancy_id, vacancy_title, recruiter_company_name) |
 | 16 | PATCH | `/api/applications?id=<uuid>` | JSON: status (viewed\|accepted\|rejected) |
 | 17 | GET   | `/api/search/users?role=&email=` | Query: role?, email? |
 | 18 | POST  | `/api/vacancies` | JSON: title, description?, required_skills?, location?, employment_type?, min_experience_years? |

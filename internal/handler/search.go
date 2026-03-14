@@ -172,3 +172,68 @@ func (h *SearchHandler) SearchStudents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(results)
 }
+
+// GetStudentByID returns one student's profile by user ID (recruiter/admin).
+// GET /api/students/{id} — для страницы «Профиль кандидата» из заявок.
+func (h *SearchHandler) GetStudentByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	claims := middleware.GetClaims(r.Context())
+	if claims == nil {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+	if claims.Role != model.RoleRecruiter && claims.Role != model.RoleAdmin {
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+		return
+	}
+	idStr := r.PathValue("id")
+	if idStr == "" {
+		http.Error(w, `{"error":"id required"}`, http.StatusBadRequest)
+		return
+	}
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		return
+	}
+	user, err := h.userRepo.GetByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, `{"error":"user not found"}`, http.StatusNotFound)
+		return
+	}
+	if user.Role != model.RoleStudent {
+		http.Error(w, `{"error":"not a student"}`, http.StatusNotFound)
+		return
+	}
+	type studentRow struct {
+		ID              string `json:"id"`
+		Email           string `json:"email"`
+		Skills          string `json:"skills"`
+		Education       string `json:"education"`
+		ExperienceYears int    `json:"experience_years"`
+		Location        string `json:"location"`
+		Availability    string `json:"availability"`
+	}
+	out := studentRow{
+		ID:              user.ID.String(),
+		Email:           user.Email,
+		Skills:          "",
+		Education:       "",
+		ExperienceYears: 0,
+		Location:        "",
+		Availability:    "",
+	}
+	profile, err := h.userRepo.GetStudentProfileByUserID(r.Context(), id)
+	if err == nil {
+		out.Skills = profile.Skills
+		out.Education = profile.Education
+		out.ExperienceYears = profile.ExperienceYears
+		out.Location = profile.Location
+		out.Availability = profile.Availability
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}

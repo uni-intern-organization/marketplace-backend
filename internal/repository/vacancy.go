@@ -19,14 +19,14 @@ func NewVacancyRepository(pool *pgxpool.Pool) *VacancyRepository {
 	return &VacancyRepository{pool: pool}
 }
 
-func (r *VacancyRepository) Create(ctx context.Context, recruiterID uuid.UUID, titleEnc, descriptionEnc []byte, requiredSkills, location, employmentType string, minExperienceYears int) (*model.Vacancy, error) {
+func (r *VacancyRepository) Create(ctx context.Context, recruiterID uuid.UUID, titleEnc, descriptionEnc []byte, companyName, requiredSkills, location, employmentType string, minExperienceYears int) (*model.Vacancy, error) {
 	var v model.Vacancy
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO vacancies (recruiter_id, title_enc, description_enc, required_skills, location, employment_type, min_experience_years)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, recruiter_id, title_enc, description_enc, required_skills, location, employment_type, min_experience_years, created_at, updated_at
-	`, recruiterID, titleEnc, descriptionEnc, requiredSkills, location, employmentType, minExperienceYears).Scan(
-		&v.ID, &v.RecruiterID, &v.TitleEnc, &v.DescriptionEnc, &v.RequiredSkills, &v.Location, &v.EmploymentType, &v.MinExperienceYears, &v.CreatedAt, &v.UpdatedAt,
+		INSERT INTO vacancies (recruiter_id, title_enc, description_enc, company_name, required_skills, location, employment_type, min_experience_years)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, recruiter_id, title_enc, description_enc, COALESCE(company_name,''), required_skills, location, employment_type, min_experience_years, created_at, updated_at
+	`, recruiterID, titleEnc, descriptionEnc, companyName, requiredSkills, location, employmentType, minExperienceYears).Scan(
+		&v.ID, &v.RecruiterID, &v.TitleEnc, &v.DescriptionEnc, &v.CompanyName, &v.RequiredSkills, &v.Location, &v.EmploymentType, &v.MinExperienceYears, &v.CreatedAt, &v.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -37,9 +37,9 @@ func (r *VacancyRepository) Create(ctx context.Context, recruiterID uuid.UUID, t
 func (r *VacancyRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.Vacancy, error) {
 	var v model.Vacancy
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, recruiter_id, title_enc, description_enc, COALESCE(required_skills,''), COALESCE(location,''), COALESCE(employment_type,''), COALESCE(min_experience_years,0), created_at, updated_at
+		SELECT id, recruiter_id, title_enc, description_enc, COALESCE(company_name,''), COALESCE(required_skills,''), COALESCE(location,''), COALESCE(employment_type,''), COALESCE(min_experience_years,0), created_at, updated_at
 		FROM vacancies WHERE id = $1
-	`, id).Scan(&v.ID, &v.RecruiterID, &v.TitleEnc, &v.DescriptionEnc, &v.RequiredSkills, &v.Location, &v.EmploymentType, &v.MinExperienceYears, &v.CreatedAt, &v.UpdatedAt)
+	`, id).Scan(&v.ID, &v.RecruiterID, &v.TitleEnc, &v.DescriptionEnc, &v.CompanyName, &v.RequiredSkills, &v.Location, &v.EmploymentType, &v.MinExperienceYears, &v.CreatedAt, &v.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +48,7 @@ func (r *VacancyRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.V
 
 func (r *VacancyRepository) ListByRecruiter(ctx context.Context, recruiterID uuid.UUID) ([]model.Vacancy, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, recruiter_id, title_enc, description_enc, COALESCE(required_skills,''), COALESCE(location,''), COALESCE(employment_type,''), COALESCE(min_experience_years,0), created_at, updated_at
+		SELECT id, recruiter_id, title_enc, description_enc, COALESCE(company_name,''), COALESCE(required_skills,''), COALESCE(location,''), COALESCE(employment_type,''), COALESCE(min_experience_years,0), created_at, updated_at
 		FROM vacancies WHERE recruiter_id = $1 ORDER BY created_at DESC
 	`, recruiterID)
 	if err != nil {
@@ -58,7 +58,7 @@ func (r *VacancyRepository) ListByRecruiter(ctx context.Context, recruiterID uui
 	var list []model.Vacancy
 	for rows.Next() {
 		var v model.Vacancy
-		if err := rows.Scan(&v.ID, &v.RecruiterID, &v.TitleEnc, &v.DescriptionEnc, &v.RequiredSkills, &v.Location, &v.EmploymentType, &v.MinExperienceYears, &v.CreatedAt, &v.UpdatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.RecruiterID, &v.TitleEnc, &v.DescriptionEnc, &v.CompanyName, &v.RequiredSkills, &v.Location, &v.EmploymentType, &v.MinExperienceYears, &v.CreatedAt, &v.UpdatedAt); err != nil {
 			return nil, err
 		}
 		list = append(list, v)
@@ -67,9 +67,9 @@ func (r *VacancyRepository) ListByRecruiter(ctx context.Context, recruiterID uui
 }
 
 type VacancyFilter struct {
-	Skills            string // comma-separated, any match
-	Location          string
-	EmploymentType    string
+	Skills             string // comma-separated, any match
+	Location           string
+	EmploymentType     string
 	MinExperienceYears *int
 }
 
@@ -78,7 +78,7 @@ func (r *VacancyRepository) List(ctx context.Context, filter VacancyFilter, limi
 		limit = 50
 	}
 	query := `
-		SELECT id, recruiter_id, title_enc, description_enc, COALESCE(required_skills,''), COALESCE(location,''), COALESCE(employment_type,''), COALESCE(min_experience_years,0), created_at, updated_at
+		SELECT id, recruiter_id, title_enc, description_enc, COALESCE(company_name,''), COALESCE(required_skills,''), COALESCE(location,''), COALESCE(employment_type,''), COALESCE(min_experience_years,0), created_at, updated_at
 		FROM vacancies WHERE 1=1
 	`
 	args := []interface{}{}
@@ -109,7 +109,7 @@ func (r *VacancyRepository) List(ctx context.Context, filter VacancyFilter, limi
 	var list []model.Vacancy
 	for rows.Next() {
 		var v model.Vacancy
-		if err := rows.Scan(&v.ID, &v.RecruiterID, &v.TitleEnc, &v.DescriptionEnc, &v.RequiredSkills, &v.Location, &v.EmploymentType, &v.MinExperienceYears, &v.CreatedAt, &v.UpdatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.RecruiterID, &v.TitleEnc, &v.DescriptionEnc, &v.CompanyName, &v.RequiredSkills, &v.Location, &v.EmploymentType, &v.MinExperienceYears, &v.CreatedAt, &v.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if filter.Skills != "" {
@@ -152,11 +152,11 @@ func stringsEqualFold(a, b string) bool {
 	return strings.EqualFold(a, b)
 }
 
-func (r *VacancyRepository) Update(ctx context.Context, id, recruiterID uuid.UUID, titleEnc, descriptionEnc []byte, requiredSkills, location, employmentType string, minExperienceYears int) error {
+func (r *VacancyRepository) Update(ctx context.Context, id, recruiterID uuid.UUID, titleEnc, descriptionEnc []byte, companyName, requiredSkills, location, employmentType string, minExperienceYears int) error {
 	result, err := r.pool.Exec(ctx, `
-		UPDATE vacancies SET title_enc = $3, description_enc = $4, required_skills = $5, location = $6, employment_type = $7, min_experience_years = $8, updated_at = NOW()
+		UPDATE vacancies SET title_enc = $3, description_enc = $4, company_name = $5, required_skills = $6, location = $7, employment_type = $8, min_experience_years = $9, updated_at = NOW()
 		WHERE id = $1 AND recruiter_id = $2
-	`, id, recruiterID, titleEnc, descriptionEnc, requiredSkills, location, employmentType, minExperienceYears)
+	`, id, recruiterID, titleEnc, descriptionEnc, companyName, requiredSkills, location, employmentType, minExperienceYears)
 	if err != nil {
 		return err
 	}

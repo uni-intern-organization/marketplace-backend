@@ -64,6 +64,7 @@ type Application struct {
 	ID             uuid.UUID
 	StudentID      uuid.UUID
 	RecruiterID    uuid.UUID
+	VacancyID      *uuid.UUID
 	InvitationID   *uuid.UUID
 	CoverLetterEnc []byte
 	Status         string
@@ -76,6 +77,7 @@ type Vacancy struct {
 	RecruiterID        uuid.UUID
 	TitleEnc           []byte
 	DescriptionEnc     []byte
+	CompanyName        string // company name for the vacancy
 	RequiredSkills     string // comma-separated
 	Location           string
 	EmploymentType     string // remote, hybrid, onsite

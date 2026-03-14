@@ -79,7 +79,7 @@ func main() {
 	profileHandler := handler.NewProfileHandler(userRepo, recruiterRepo, aesKey)
 	fileHandler := handler.NewFileHandler(s3Storage, userRepo, recruiterRepo)
 	invitationHandler := handler.NewInvitationHandler(invRepo, userRepo, aesKey)
-	applicationHandler := handler.NewApplicationHandler(appRepo, invRepo, userRepo, aesKey)
+	applicationHandler := handler.NewApplicationHandler(appRepo, invRepo, userRepo, vacancyRepo, aesKey)
 	vacancyHandler := handler.NewVacancyHandler(vacancyRepo, userRepo, aesKey)
 	matchHandler := handler.NewMatchHandler(vacancyRepo, userRepo, aesKey)
 	searchHandler := handler.NewSearchHandler(pool, userRepo)
@@ -115,6 +115,7 @@ func main() {
 	mux.Handle("GET /api/match/recommendations", authMiddleware(middleware.RequireRole(model.RoleStudent)(http.HandlerFunc(matchHandler.RecommendationsForStudent))))
 	mux.Handle("GET /api/search/users", authMiddleware(middleware.RequireRole(model.RoleAdmin, model.RoleRecruiter)(http.HandlerFunc(searchHandler.SearchUsers))))
 	mux.Handle("GET /api/search/students", authMiddleware(middleware.RequireRole(model.RoleAdmin, model.RoleRecruiter)(http.HandlerFunc(searchHandler.SearchStudents))))
+	mux.Handle("GET /api/students/{id}", authMiddleware(middleware.RequireRole(model.RoleAdmin, model.RoleRecruiter)(http.HandlerFunc(searchHandler.GetStudentByID))))
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

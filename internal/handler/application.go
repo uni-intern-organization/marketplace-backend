@@ -12,29 +12,34 @@ import (
 )
 
 type ApplicationHandler struct {
-	appRepo  *repository.ApplicationRepository
-	invRepo  *repository.InvitationRepository
-	userRepo *repository.UserRepository
-	aesKey   []byte
+	appRepo     *repository.ApplicationRepository
+	invRepo     *repository.InvitationRepository
+	userRepo    *repository.UserRepository
+	vacancyRepo *repository.VacancyRepository
+	aesKey      []byte
 }
 
-func NewApplicationHandler(appRepo *repository.ApplicationRepository, invRepo *repository.InvitationRepository, userRepo *repository.UserRepository, aesKey []byte) *ApplicationHandler {
-	return &ApplicationHandler{appRepo: appRepo, invRepo: invRepo, userRepo: userRepo, aesKey: aesKey}
+func NewApplicationHandler(appRepo *repository.ApplicationRepository, invRepo *repository.InvitationRepository, userRepo *repository.UserRepository, vacancyRepo *repository.VacancyRepository, aesKey []byte) *ApplicationHandler {
+	return &ApplicationHandler{appRepo: appRepo, invRepo: invRepo, userRepo: userRepo, vacancyRepo: vacancyRepo, aesKey: aesKey}
 }
 
 type CreateApplicationRequest struct {
-	RecruiterID string `json:"recruiter_id"`
+	RecruiterID  string `json:"recruiter_id"`
+	VacancyID    string `json:"vacancy_id"`
 	InvitationID string `json:"invitation_id,omitempty"`
-	CoverLetter string `json:"cover_letter,omitempty"`
+	CoverLetter  string `json:"cover_letter,omitempty"`
 }
 
 type ApplicationResponse struct {
-	ID          string  `json:"id"`
-	StudentID   string  `json:"student_id"`
-	RecruiterID string  `json:"recruiter_id"`
-	CoverLetter string  `json:"cover_letter,omitempty"`
-	Status      string  `json:"status"`
-	CreatedAt   string  `json:"created_at"`
+	ID                   string `json:"id"`
+	StudentID            string `json:"student_id"`
+	RecruiterID          string `json:"recruiter_id"`
+	VacancyID            string `json:"vacancy_id"`
+	VacancyTitle         string `json:"vacancy_title"`
+	RecruiterCompanyName string `json:"recruiter_company_name,omitempty"`
+	CoverLetter          string `json:"cover_letter,omitempty"`
+	Status               string `json:"status"`
+	CreatedAt            string `json:"created_at"`
 }
 
 func (h *ApplicationHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -50,6 +55,16 @@ func (h *ApplicationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req CreateApplicationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid body"}`, http.StatusBadRequest)
+		return
+	}
+	vacancyID, err := uuid.Parse(req.VacancyID)
+	if err != nil {
+		http.Error(w, `{"error":"invalid vacancy_id"}`, http.StatusBadRequest)
+		return
+	}
+	vacancy, err := h.vacancyRepo.GetByID(r.Context(), vacancyID)
+	if err != nil {
+		http.Error(w, `{"error":"vacancy not found"}`, http.StatusNotFound)
 		return
 	}
 	recruiterID, err := uuid.Parse(req.RecruiterID)
@@ -79,14 +94,27 @@ func (h *ApplicationHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	app, err := h.appRepo.Create(r.Context(), claims.UserID, recruiterID, invitationID, coverLetterEnc)
+	app, err := h.appRepo.Create(r.Context(), claims.UserID, recruiterID, vacancyID, invitationID, coverLetterEnc)
 	if err != nil {
 		http.Error(w, `{"error":"failed to create application"}`, http.StatusInternalServerError)
 		return
 	}
 	resp := ApplicationResponse{
-		ID: app.ID.String(), StudentID: app.StudentID.String(), RecruiterID: app.RecruiterID.String(),
-		Status: app.Status, CreatedAt: app.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID:          app.ID.String(),
+		StudentID:   app.StudentID.String(),
+		RecruiterID: app.RecruiterID.String(),
+		VacancyID:   vacancyID.String(),
+		Status:      app.Status,
+		CreatedAt:   app.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
+	// заполнить vacancy_title и recruiter_company_name из вакансии
+	if len(vacancy.TitleEnc) > 0 {
+		if b, err := crypto.Decrypt(vacancy.TitleEnc, h.aesKey); err == nil {
+			resp.VacancyTitle = string(b)
+		}
+	}
+	if vacancy.CompanyName != "" {
+		resp.RecruiterCompanyName = vacancy.CompanyName
 	}
 	if len(app.CoverLetterEnc) > 0 {
 		b, _ := crypto.Decrypt(app.CoverLetterEnc, h.aesKey)
@@ -122,15 +150,32 @@ func (h *ApplicationHandler) ListMine(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := make([]ApplicationResponse, 0, len(list))
 	for _, app := range list {
-		r := ApplicationResponse{
-			ID: app.ID.String(), StudentID: app.StudentID.String(), RecruiterID: app.RecruiterID.String(),
-			Status: app.Status, CreatedAt: app.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ar := ApplicationResponse{
+			ID:          app.ID.String(),
+			StudentID:   app.StudentID.String(),
+			RecruiterID: app.RecruiterID.String(),
+			Status:      app.Status,
+			CreatedAt:   app.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		}
+		if app.VacancyID != nil {
+			ar.VacancyID = app.VacancyID.String()
+			if vac, err := h.vacancyRepo.GetByID(r.Context(), *app.VacancyID); err == nil {
+				if len(vac.TitleEnc) > 0 {
+					if b, err := crypto.Decrypt(vac.TitleEnc, h.aesKey); err == nil {
+						ar.VacancyTitle = string(b)
+					}
+				}
+				if vac.CompanyName != "" {
+					ar.RecruiterCompanyName = vac.CompanyName
+				}
+			}
 		}
 		if len(app.CoverLetterEnc) > 0 {
-			b, _ := crypto.Decrypt(app.CoverLetterEnc, h.aesKey)
-			r.CoverLetter = string(b)
+			if b, err := crypto.Decrypt(app.CoverLetterEnc, h.aesKey); err == nil {
+				ar.CoverLetter = string(b)
+			}
 		}
-		resp = append(resp, r)
+		resp = append(resp, ar)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

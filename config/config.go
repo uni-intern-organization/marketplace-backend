@@ -6,11 +6,11 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig
-	DB       DBConfig
-	JWT      JWTConfig
-	AES      AESConfig
-	S3       S3Config
+	Server ServerConfig
+	DB     DBConfig
+	JWT    JWTConfig
+	AES    AESConfig
+	S3     S3Config
 }
 
 type ServerConfig struct {
@@ -27,7 +27,7 @@ type DBConfig struct {
 }
 
 type JWTConfig struct {
-	Secret     string
+	Secret      string
 	ExpireHours int
 }
 

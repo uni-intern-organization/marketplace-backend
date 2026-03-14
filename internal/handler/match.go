@@ -22,6 +22,8 @@ func NewMatchHandler(vacancyRepo *repository.VacancyRepository, userRepo *reposi
 	return &MatchHandler{vacancyRepo: vacancyRepo, userRepo: userRepo, aesKey: aesKey}
 }
 
+// matchScore считает балл совпадения профиля студента с вакансией.
+// Только положительные компоненты; итог не меньше 0. Фронт может показывать его как процент (например score*100/maxPoints).
 func matchScore(requiredSkills, studentSkills, vacLocation, studentLocation, employmentType, availability string, minExp, studentExp int) int {
 	score := 0
 	req := splitTrimLower(requiredSkills)
@@ -40,10 +42,17 @@ func matchScore(requiredSkills, studentSkills, vacLocation, studentLocation, emp
 	if employmentType != "" && availability != "" && strings.EqualFold(strings.TrimSpace(employmentType), strings.TrimSpace(availability)) {
 		score += 5
 	}
-	if studentExp >= minExp {
+	if minExp > 0 {
+		if studentExp >= minExp {
+			score += 5
+		}
+		// при недостаточном опыте не штрафуем — просто 0 за этот критерий
+	} else {
+		// вакансия без требования опыта — считаем нейтральным совпадением по опыту
 		score += 5
-	} else if minExp > 0 {
-		score -= 3
+	}
+	if score < 0 {
+		return 0
 	}
 	return score
 }
@@ -161,7 +170,7 @@ func (h *MatchHandler) RecommendationsForStudent(w http.ResponseWriter, r *http.
 		return
 	}
 	type scored struct {
-		v    model.Vacancy
+		v     model.Vacancy
 		score int
 	}
 	var scoredList []scored

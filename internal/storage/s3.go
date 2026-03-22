@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -65,13 +66,28 @@ func (s *S3Storage) Upload(ctx context.Context, key string, body io.Reader, cont
 	return err
 }
 
+func (s *S3Storage) GetObject(ctx context.Context, key string) (io.ReadCloser, string, error) {
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	ct := "application/octet-stream"
+	if out.ContentType != nil {
+		ct = *out.ContentType
+	}
+	return out.Body, ct, nil
+}
+
 func (s *S3Storage) GetPresignedURL(ctx context.Context, key string) (string, error) {
 	presignClient := s3.NewPresignClient(s.client)
 	req, err := presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	}, func(opts *s3.PresignOptions) {
-		opts.Expires = 3600 // 1 hour
+		opts.Expires = 24 * time.Hour // 24 часа — ссылка «Открыть» для логотипа/резюме не протухнет
 	})
 	if err != nil {
 		return "", err

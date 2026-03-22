@@ -71,7 +71,7 @@ func main() {
 
 	userRepo := repository.NewUserRepository(pool)
 	recruiterRepo := repository.NewRecruiterProfileRepository(pool)
-	invRepo := repository.NewInvitationRepository(pool)
+	invRepo := repository.NewInvitationRepository(pool, aesKey)
 	appRepo := repository.NewApplicationRepository(pool)
 	vacancyRepo := repository.NewVacancyRepository(pool)
 
@@ -97,7 +97,14 @@ func main() {
 	mux.Handle("PATCH /api/me/recruiter", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(profileHandler.UpdateRecruiterProfile))))
 	mux.Handle("GET /api/users", authMiddleware(middleware.RequireRole(allRoles...)(http.HandlerFunc(profileHandler.GetUserByID))))
 	mux.Handle("POST /api/files/resume", authMiddleware(middleware.RequireRole(model.RoleStudent)(http.HandlerFunc(fileHandler.UploadResume))))
+	mux.Handle("GET /api/files/resume", authMiddleware(middleware.RequireRole(model.RoleStudent)(http.HandlerFunc(fileHandler.GetResume))))
+	mux.Handle("POST /api/files/resume/get", authMiddleware(middleware.RequireRole(model.RoleStudent)(http.HandlerFunc(fileHandler.GetResume))))
+	mux.Handle("GET /api/files/student-resume", authMiddleware(middleware.RequireRole(allRoles...)(http.HandlerFunc(fileHandler.GetStudentResume))))
+	mux.Handle("POST /api/files/student-resume", authMiddleware(middleware.RequireRole(allRoles...)(http.HandlerFunc(fileHandler.GetStudentResume))))
 	mux.Handle("POST /api/files/logo", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(fileHandler.UploadCompanyLogo))))
+	mux.Handle("GET /api/files/logo", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(fileHandler.GetLogo))))
+	mux.Handle("POST /api/files/logo/get", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(fileHandler.GetLogo)))) // «Показать логотип» — если фронт шлёт POST
+	mux.Handle("GET /api/files/logo/get", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(fileHandler.GetLogo))))
 	mux.Handle("GET /api/files/url", authMiddleware(middleware.RequireRole(allRoles...)(http.HandlerFunc(fileHandler.GetPresignedURL))))
 	mux.Handle("POST /api/invitations", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(invitationHandler.Create))))
 	mux.Handle("GET /api/invitations", authMiddleware(middleware.RequireRole(model.RoleStudent, model.RoleRecruiter)(http.HandlerFunc(invitationHandler.ListMine))))
@@ -106,7 +113,8 @@ func main() {
 	mux.Handle("GET /api/applications", authMiddleware(middleware.RequireRole(model.RoleStudent, model.RoleRecruiter)(http.HandlerFunc(applicationHandler.ListMine))))
 	mux.Handle("PATCH /api/applications", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(applicationHandler.UpdateStatus))))
 	mux.Handle("POST /api/vacancies", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(vacancyHandler.Create))))
-	mux.Handle("GET /api/vacancies", authMiddleware(middleware.RequireRole(allRoles...)(http.HandlerFunc(vacancyHandler.GetOrList))))
+	// Публичный список/просмотр вакансий без токена (главная для гостей)
+	mux.Handle("GET /api/vacancies", http.HandlerFunc(vacancyHandler.GetOrList))
 	mux.Handle("GET /api/vacancies/mine", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(vacancyHandler.ListMine))))
 	mux.Handle("PUT /api/vacancies", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(vacancyHandler.Update))))
 	mux.Handle("PATCH /api/vacancies", authMiddleware(middleware.RequireRole(model.RoleRecruiter)(http.HandlerFunc(vacancyHandler.Update))))

@@ -12,9 +12,9 @@ import (
 )
 
 type InvitationHandler struct {
-	invRepo *repository.InvitationRepository
+	invRepo  *repository.InvitationRepository
 	userRepo *repository.UserRepository
-	aesKey  []byte
+	aesKey   []byte
 }
 
 func NewInvitationHandler(invRepo *repository.InvitationRepository, userRepo *repository.UserRepository, aesKey []byte) *InvitationHandler {
@@ -23,16 +23,20 @@ func NewInvitationHandler(invRepo *repository.InvitationRepository, userRepo *re
 
 type CreateInvitationRequest struct {
 	StudentID string `json:"student_id"`
+	VacancyID string `json:"vacancy_id,omitempty"`
 	Message   string `json:"message"`
 }
 
 type InvitationResponse struct {
-	ID         string `json:"id"`
-	RecruiterID string `json:"recruiter_id"`
-	StudentID  string `json:"student_id"`
-	Message   string `json:"message,omitempty"`
-	Status   string `json:"status"`
-	CreatedAt string `json:"created_at"`
+	ID                   string `json:"id"`
+	RecruiterID          string `json:"recruiter_id"`
+	StudentID            string `json:"student_id"`
+	RecruiterCompanyName string `json:"recruiter_company_name,omitempty"`
+	VacancyID            string `json:"vacancy_id,omitempty"`
+	VacancyTitle         string `json:"vacancy_title,omitempty"`
+	Message              string `json:"message,omitempty"`
+	Status               string `json:"status"`
+	CreatedAt            string `json:"created_at"`
 }
 
 func (h *InvitationHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -77,14 +81,27 @@ func (h *InvitationHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	inv, err := h.invRepo.Create(r.Context(), claims.UserID, studentID, messageEnc)
+	var vacancyID uuid.UUID
+	if req.VacancyID != "" {
+		vacancyID, err = uuid.Parse(req.VacancyID)
+		if err != nil {
+			http.Error(w, `{"error":"invalid vacancy_id"}`, http.StatusBadRequest)
+			return
+		}
+	}
+	inv, err := h.invRepo.Create(r.Context(), claims.UserID, studentID, vacancyID, messageEnc)
 	if err != nil {
 		http.Error(w, `{"error":"failed to create invitation"}`, http.StatusInternalServerError)
 		return
 	}
 	resp := InvitationResponse{
 		ID: inv.ID.String(), RecruiterID: inv.RecruiterID.String(), StudentID: inv.StudentID.String(),
-		Status: inv.Status, CreatedAt: inv.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		RecruiterCompanyName: inv.RecruiterCompanyName,
+		Status:               inv.Status, CreatedAt: inv.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
+	if inv.VacancyID != nil {
+		resp.VacancyID = inv.VacancyID.String()
+		resp.VacancyTitle = inv.VacancyTitle
 	}
 	if len(inv.MessageEnc) > 0 {
 		b, _ := crypto.Decrypt(inv.MessageEnc, h.aesKey)
@@ -122,7 +139,12 @@ func (h *InvitationHandler) ListMine(w http.ResponseWriter, r *http.Request) {
 	for _, inv := range list {
 		r := InvitationResponse{
 			ID: inv.ID.String(), RecruiterID: inv.RecruiterID.String(), StudentID: inv.StudentID.String(),
-			Status: inv.Status, CreatedAt: inv.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			RecruiterCompanyName: inv.RecruiterCompanyName,
+			Status:               inv.Status, CreatedAt: inv.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		}
+		if inv.VacancyID != nil {
+			r.VacancyID = inv.VacancyID.String()
+			r.VacancyTitle = inv.VacancyTitle
 		}
 		if len(inv.MessageEnc) > 0 {
 			b, _ := crypto.Decrypt(inv.MessageEnc, h.aesKey)

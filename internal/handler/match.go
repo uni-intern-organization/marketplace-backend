@@ -120,6 +120,32 @@ func (h *MatchHandler) CandidatesForVacancy(w http.ResponseWriter, r *http.Reque
 			continue
 		}
 		score := matchScore(vac.RequiredSkills, p.Skills, vac.Location, p.Location, vac.EmploymentType, p.Availability, vac.MinExperienceYears, p.ExperienceYears)
+
+		// Filter: only show candidates who have at least one required skill
+		hasRequiredSkill := false
+		if vac.RequiredSkills != "" {
+			requiredSkills := splitTrimLower(vac.RequiredSkills)
+			studentSkills := splitTrimLower(p.Skills)
+			for _, req := range requiredSkills {
+				for _, student := range studentSkills {
+					if req == student {
+						hasRequiredSkill = true
+						break
+					}
+				}
+				if hasRequiredSkill {
+					break
+				}
+			}
+		} else {
+			// If vacancy has no specific skill requirements, show all candidates
+			hasRequiredSkill = true
+		}
+
+		if !hasRequiredSkill {
+			continue
+		}
+
 		scoredList = append(scoredList, scored{
 			cand: CandidateResponse{
 				UserID:          p.UserID.String(),

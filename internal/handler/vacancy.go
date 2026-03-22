@@ -96,7 +96,7 @@ func (h *VacancyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	descEnc, _ := crypto.Encrypt([]byte(req.Description), h.aesKey)
-	v, err := h.vacancyRepo.Create(r.Context(), claims.UserID, titleEnc, descEnc, req.CompanyName, req.RequiredSkills, req.Location, req.EmploymentType, req.MinExperienceYears)
+	v, err := h.vacancyRepo.Create(r.Context(), claims.UserID, titleEnc, descEnc, req.CompanyName, req.RequiredSkills, req.Location, req.EmploymentType, req.Title, req.MinExperienceYears)
 	if err != nil {
 		http.Error(w, `{"error":"failed to create vacancy"}`, http.StatusInternalServerError)
 		return
@@ -122,8 +122,12 @@ func (h *VacancyHandler) List(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
-	_ = middleware.GetClaims(r.Context())
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		q = r.URL.Query().Get("search")
+	}
 	filter := repository.VacancyFilter{
+		Search:         q,
 		Skills:         r.URL.Query().Get("skills"),
 		Location:       r.URL.Query().Get("location"),
 		EmploymentType: r.URL.Query().Get("employment_type"),
@@ -144,6 +148,7 @@ func (h *VacancyHandler) List(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"list failed"}`, http.StatusInternalServerError)
 		return
 	}
+
 	resp := make([]VacancyResponse, 0, len(list))
 	for i := range list {
 		resp = append(resp, vacancyToResponse(&list[i], h.aesKey))
@@ -236,7 +241,7 @@ func (h *VacancyHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	titleEnc, _ := crypto.Encrypt([]byte(req.Title), h.aesKey)
 	descEnc, _ := crypto.Encrypt([]byte(req.Description), h.aesKey)
-	if err := h.vacancyRepo.Update(r.Context(), id, claims.UserID, titleEnc, descEnc, req.CompanyName, req.RequiredSkills, req.Location, req.EmploymentType, req.MinExperienceYears); err != nil {
+	if err := h.vacancyRepo.Update(r.Context(), id, claims.UserID, titleEnc, descEnc, req.CompanyName, req.RequiredSkills, req.Location, req.EmploymentType, req.Title, req.MinExperienceYears); err != nil {
 		http.Error(w, `{"error":"vacancy not found or forbidden"}`, http.StatusNotFound)
 		return
 	}

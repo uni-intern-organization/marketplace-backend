@@ -128,6 +128,10 @@ func (h *SearchHandler) SearchStudents(w http.ResponseWriter, r *http.Request) {
 	var results []studentRow
 	skillSet := splitTrimLower(skillsFilter)
 	for _, p := range profiles {
+		// Гарантия: не показываем кандидатов без навыков (UI не должен получать «пустые» карточки).
+		if strings.TrimSpace(p.Skills) == "" {
+			continue
+		}
 		if expMin >= 0 && p.ExperienceYears < expMin {
 			continue
 		}

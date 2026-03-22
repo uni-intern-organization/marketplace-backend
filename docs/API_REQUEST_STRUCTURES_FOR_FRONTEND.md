@@ -1,4 +1,4 @@
-# Структуры запросов API для фронтенда
+   # Структуры запросов API для фронтенда
 
 Base URL: `http://localhost:8081`  
 Защищённые запросы: заголовок `Authorization: Bearer <token>`  
@@ -182,7 +182,9 @@ Content-Type для JSON: `application/json`
 
 ## 7. Получить пользователя по ID
 
-Используется, в частности, когда рекрутер открывает профиль студента из заявки. Рекрутер и админ могут запрашивать любого пользователя; остальные — только себя.
+Используется, в частности, когда рекрутер открывает профиль студента из заявки (**CandidateDetail / FindCandidates**). Рекрутер и админ могут запрашивать любого пользователя; остальные — только себя.
+
+**Важно для CandidateDetail:** при клике на кандидата вызывать `GET /api/users?id=<student_id>`. В ответе для студента приходит полный профиль: `full_name`, `phone`, `bio`, `skills`, `education`, `experience_years`, `location`, `availability`, `resume_url`. Поле `resume_url` — это ключ объекта (object_key); ссылку для скачивания резюме получать через `GET /api/files/url?key=<resume_url>`.
 
 **URL:** `http://localhost:8081/api/users?id=<uuid>`  
 **Метод:** `GET`  
@@ -262,6 +264,36 @@ Content-Type для JSON: `application/json`
   "object_key": "logos/660e8400-.../logo.png"
 }
 ```
+
+---
+
+## 9.1. Получить логотип для отображения (один запрос)
+
+Чтобы логотип отобразился (например, в `<img src="...">` или через fetch), фронт делает один запрос к бэкенду.
+
+**Метод и URL:** `GET /api/files/logo?key=<ключ_файла>`
+
+**Query-параметр:** `key` — значение `logo_url` из профиля рекрутера (ключ объекта в S3), например:  
+`logos/50935510-6e0d-4818-ad99-271b956c0ec7/e25a9248-8339-45c6-a421-ba07da1e7b44.webp`
+
+**Заголовки:** `Authorization: Bearer <token>`
+
+**Пример запроса:**
+```
+GET /api/files/logo?key=logos/50935510-6e0d-4818-ad99-271b956c0ec7/e25a9248-8339-45c6-a421-ba07da1e7b44.webp
+Authorization: Bearer <ваш_токен>
+```
+
+**Поведение бэкенда:**
+- Проверяет авторизацию и роль **recruiter**.
+- Проверяет, что `key` начинается с `logos/{id_текущего_пользователя}/` (доступ только к своему логотипу).
+- Скачивает файл из S3 и отдаёт в ответе: тело — бинарный файл изображения, заголовок `Content-Type` — например `image/webp` или `image/png`.
+
+**Ответ (200):** бинарное тело изображения, заголовок `Content-Type`: `image/png`, `image/jpeg` или `image/webp`.
+
+**Ошибки:** 400 — не передан `key`; 403 — не рекрутер или ключ не принадлежит текущему пользователю; 500 — ошибка при получении файла из хранилища.
+
+**Если при «Показать логотип» приходит 405 (Method Not Allowed):** используйте **GET** для этого URL. Допускается также эндпоинт `GET` или `POST /api/files/logo/get?key=<ключ>` — он отдаёт тот же логотип и принимает оба метода.
 
 ---
 
@@ -513,6 +545,8 @@ Content-Type для JSON: `application/json`
 | 7  | GET   | `/api/users?id=<uuid>` | Query: id |
 | 8  | POST  | `/api/files/resume` | multipart: resume или file (PDF) |
 | 9  | POST  | `/api/files/logo` | multipart: logo |
+| 9.1 | GET   | `/api/files/logo?key=<key>` | Query: key (рекрутер, только свой логотип; ответ — бинарное изображение) |
+| 9.2 | GET или POST | `/api/files/logo/get?key=<key>` | то же, что 9.1; POST на случай 405 при «Показать логотип» |
 | 10 | GET   | `/api/files/url?key=<key>` | Query: key |
 | 11 | POST  | `/api/invitations` | JSON: student_id, message? |
 | 12 | GET   | `/api/invitations` | — |
@@ -522,7 +556,7 @@ Content-Type для JSON: `application/json`
 | 16 | PATCH | `/api/applications?id=<uuid>` | JSON: status (viewed\|accepted\|rejected) |
 | 17 | GET   | `/api/search/users?role=&email=` | Query: role?, email? |
 | 18 | POST  | `/api/vacancies` | JSON: title, description?, required_skills?, location?, employment_type?, min_experience_years? |
-| 19 | GET   | `/api/vacancies` | — (список) или ?id=<uuid> (одна вакансия) |
+| 19 | GET   | `/api/vacancies` | — (список) или ?id=<uuid> (одна вакансия), **публично, без Authorization** |
 | 20 | GET   | `/api/vacancies/mine` | — (вакансии текущего рекрутера) |
 | 21 | PUT/PATCH | `/api/vacancies?id=<uuid>` | JSON: title?, description?, required_skills?, location?, employment_type?, min_experience_years? |
 | 22 | DELETE | `/api/vacancies?id=<uuid>` | — |

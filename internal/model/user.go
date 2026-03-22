@@ -51,13 +51,16 @@ type RecruiterProfile struct {
 }
 
 type Invitation struct {
-	ID          uuid.UUID
-	RecruiterID uuid.UUID
-	StudentID   uuid.UUID
-	MessageEnc  []byte
-	Status      string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID                   uuid.UUID
+	RecruiterID          uuid.UUID
+	StudentID            uuid.UUID
+	RecruiterCompanyName string
+	VacancyID            *uuid.UUID
+	VacancyTitle         string
+	MessageEnc           []byte
+	Status               string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type Application struct {

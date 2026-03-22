@@ -59,6 +59,20 @@ func (r *UserRepository) SetStudentResumeKey(ctx context.Context, userID uuid.UU
 	return err
 }
 
+func (r *UserRepository) GetStudentResumeKey(ctx context.Context, userID string) (string, error) {
+	var key *string
+	err := r.pool.QueryRow(ctx, `
+		SELECT resume_object_key FROM student_profiles WHERE user_id = $1
+	`, userID).Scan(&key)
+	if err != nil {
+		return "", err
+	}
+	if key == nil {
+		return "", nil
+	}
+	return *key, nil
+}
+
 // StudentProfileForMatching is used by the matching engine (no encrypted fields).
 type StudentProfileForMatching struct {
 	UserID          uuid.UUID
@@ -73,6 +87,7 @@ func (r *UserRepository) ListStudentProfilesForMatching(ctx context.Context) ([]
 	rows, err := r.pool.Query(ctx, `
 		SELECT user_id, COALESCE(skills,''), COALESCE(education,''), COALESCE(experience_years,0), COALESCE(location,''), COALESCE(availability,'')
 		FROM student_profiles
+		WHERE COALESCE(TRIM(skills), '') <> ''
 	`)
 	if err != nil {
 		return nil, err

@@ -19,13 +19,13 @@ func NewVacancyRepository(pool *pgxpool.Pool) *VacancyRepository {
 	return &VacancyRepository{pool: pool}
 }
 
-func (r *VacancyRepository) Create(ctx context.Context, recruiterID uuid.UUID, titleEnc, descriptionEnc []byte, companyName, requiredSkills, location, employmentType string, minExperienceYears int) (*model.Vacancy, error) {
+func (r *VacancyRepository) Create(ctx context.Context, recruiterID uuid.UUID, titleEnc, descriptionEnc []byte, companyName, requiredSkills, location, employmentType, titleSearch string, minExperienceYears int) (*model.Vacancy, error) {
 	var v model.Vacancy
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO vacancies (recruiter_id, title_enc, description_enc, company_name, required_skills, location, employment_type, min_experience_years)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO vacancies (recruiter_id, title_enc, description_enc, company_name, required_skills, location, employment_type, min_experience_years, title_search)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, recruiter_id, title_enc, description_enc, COALESCE(company_name,''), required_skills, location, employment_type, min_experience_years, created_at, updated_at
-	`, recruiterID, titleEnc, descriptionEnc, companyName, requiredSkills, location, employmentType, minExperienceYears).Scan(
+	`, recruiterID, titleEnc, descriptionEnc, companyName, requiredSkills, location, employmentType, minExperienceYears, strings.TrimSpace(titleSearch)).Scan(
 		&v.ID, &v.RecruiterID, &v.TitleEnc, &v.DescriptionEnc, &v.CompanyName, &v.RequiredSkills, &v.Location, &v.EmploymentType, &v.MinExperienceYears, &v.CreatedAt, &v.UpdatedAt,
 	)
 	if err != nil {
@@ -67,6 +67,7 @@ func (r *VacancyRepository) ListByRecruiter(ctx context.Context, recruiterID uui
 }
 
 type VacancyFilter struct {
+	Search             string // текстовый поиск по названию (title_search ILIKE)
 	Skills             string // comma-separated, any match
 	Location           string
 	EmploymentType     string
@@ -83,6 +84,11 @@ func (r *VacancyRepository) List(ctx context.Context, filter VacancyFilter, limi
 	`
 	args := []interface{}{}
 	n := 1
+	if filter.Search != "" {
+		query += fmt.Sprintf(" AND COALESCE(title_search,'') ILIKE $%d", n)
+		args = append(args, "%"+strings.TrimSpace(filter.Search)+"%")
+		n++
+	}
 	if filter.Location != "" {
 		query += fmt.Sprintf(" AND location ILIKE $%d", n)
 		args = append(args, "%"+filter.Location+"%")
@@ -152,11 +158,11 @@ func stringsEqualFold(a, b string) bool {
 	return strings.EqualFold(a, b)
 }
 
-func (r *VacancyRepository) Update(ctx context.Context, id, recruiterID uuid.UUID, titleEnc, descriptionEnc []byte, companyName, requiredSkills, location, employmentType string, minExperienceYears int) error {
+func (r *VacancyRepository) Update(ctx context.Context, id, recruiterID uuid.UUID, titleEnc, descriptionEnc []byte, companyName, requiredSkills, location, employmentType, titleSearch string, minExperienceYears int) error {
 	result, err := r.pool.Exec(ctx, `
-		UPDATE vacancies SET title_enc = $3, description_enc = $4, company_name = $5, required_skills = $6, location = $7, employment_type = $8, min_experience_years = $9, updated_at = NOW()
+		UPDATE vacancies SET title_enc = $3, description_enc = $4, company_name = $5, required_skills = $6, location = $7, employment_type = $8, min_experience_years = $9, title_search = $10, updated_at = NOW()
 		WHERE id = $1 AND recruiter_id = $2
-	`, id, recruiterID, titleEnc, descriptionEnc, companyName, requiredSkills, location, employmentType, minExperienceYears)
+	`, id, recruiterID, titleEnc, descriptionEnc, companyName, requiredSkills, location, employmentType, minExperienceYears, strings.TrimSpace(titleSearch))
 	if err != nil {
 		return err
 	}

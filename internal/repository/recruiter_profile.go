@@ -61,3 +61,19 @@ func (r *RecruiterProfileRepository) UpdateLogo(ctx context.Context, userID uuid
 	`, userID, objectKey)
 	return err
 }
+
+// GetLogoKeyByUserID возвращает ключ логотипа компании для указанного рекрутера.
+// Используется, чтобы при загрузке нового логотипа удалить старый файл из S3.
+func (r *RecruiterProfileRepository) GetLogoKeyByUserID(ctx context.Context, userID uuid.UUID) (string, error) {
+	var key *string
+	err := r.pool.QueryRow(ctx, `
+		SELECT company_logo_object_key FROM recruiter_profiles WHERE user_id = $1
+	`, userID).Scan(&key)
+	if err != nil {
+		return "", err
+	}
+	if key == nil {
+		return "", nil
+	}
+	return *key, nil
+}

@@ -13,7 +13,7 @@
       "parentId": "wrk_marketplace",
       "name": "Base",
       "data": {
-        "base_url": "http://localhost:8081",
+        "base_url": "http://localhost:8080",
         "token": ""
       }
     },

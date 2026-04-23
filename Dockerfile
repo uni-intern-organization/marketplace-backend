@@ -17,6 +17,6 @@ WORKDIR /app
 COPY --from=builder /marketplace-api .
 COPY migrations ./migrations
 
-EXPOSE 8081
+EXPOSE 8080
 
 CMD ["./marketplace-api"]

@@ -1,6 +1,6 @@
 # Все запросы API (только запросы)
 
-Base URL: `http://localhost:8081`  
+Base URL: `http://localhost:8080`  
 Защищённые: заголовок `Authorization: Bearer <token>`
 
 ---

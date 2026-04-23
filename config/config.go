@@ -45,7 +45,7 @@ type S3Config struct {
 }
 
 func Load() (*Config, error) {
-	port := getEnv("PORT", "8081")
+	port := getEnv("PORT", "8080")
 	dbHost := getEnv("DB_HOST", "postgres")
 	dbPort := getEnv("DB_PORT", "5432")
 	dbUser := getEnv("DB_USER", "postgres")

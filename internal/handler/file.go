@@ -23,8 +23,8 @@ func NewFileHandler(s *storage.S3Storage, userRepo *repository.UserRepository, r
 	return &FileHandler{storage: s, userRepo: userRepo, recruiterRepo: recruiterRepo}
 }
 
-const maxResumeSize = 5 << 20  // 5 MB
-const maxLogoSize  = 2 << 20   // 2 MB
+const maxResumeSize = 5 << 20 // 5 MB
+const maxLogoSize = 2 << 20   // 2 MB
 
 func (h *FileHandler) UploadResume(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

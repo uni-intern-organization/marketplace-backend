@@ -1,6 +1,6 @@
 # API: все запросы и тестовые примеры
 
-Base URL: `http://localhost:8081`
+Base URL: `http://localhost:8080`
 
 Для защищённых запросов добавьте заголовок:  
 `Authorization: Bearer <ваш_jwt_токен>`
@@ -17,7 +17,7 @@ Base URL: `http://localhost:8081`
 
 **Пример запроса (curl):**
 ```bash
-curl http://localhost:8081/health
+curl http://localhost:8080/health
 ```
 **Ответ:** `200 OK`, тело: `ok`
 
@@ -221,14 +221,14 @@ curl http://localhost:8081/health
 
 **Пример (curl) с полем resume:**
 ```bash
-curl -X POST http://localhost:8081/api/files/resume \
+curl -X POST http://localhost:8080/api/files/resume \
   -H "Authorization: Bearer <token>" \
   -F "resume=@/path/to/resume.pdf"
 ```
 
 **Пример (curl) с полем file:**
 ```bash
-curl -X POST http://localhost:8081/api/files/resume \
+curl -X POST http://localhost:8080/api/files/resume \
   -H "Authorization: Bearer <token>" \
   -F "file=@C:/Users/Admin/Desktop/resume.pdf"
 ```
@@ -252,7 +252,7 @@ curl -X POST http://localhost:8081/api/files/resume \
 
 **Пример (curl):**
 ```bash
-curl -X POST http://localhost:8081/api/files/logo \
+curl -X POST http://localhost:8080/api/files/logo \
   -H "Authorization: Bearer <token>" \
   -F "logo=@/path/to/logo.png"
 ```

@@ -12,7 +12,7 @@
 
 - Go 1.22, PostgreSQL 16, MinIO (S3-совместимое хранилище)
 - JWT-авторизация, AES-256 для чувствительных полей (ФИО, телефон, сообщения)
-- Docker и docker-compose, порт API: **8081**
+- Docker и docker-compose, порт API: **8080**
 
 ## Запуск
 
@@ -35,8 +35,8 @@ docker compose up -d
 
 Сервисы:
 
-- **API**: http://localhost:8081
-- **PostgreSQL**: localhost:5432 (user/pass: postgres/postgres, DB: marketplace)
+- **API**: http://localhost:8080
+- **PostgreSQL** (с хоста, pgAdmin): **localhost:5433** → в контейнере порт 5432 (user/pass: postgres/postgres, DB: marketplace)
 - **MinIO**: http://localhost:9000 (minioadmin/minioadmin), консоль: http://localhost:9001
 
 Миграции выполняются при старте API.

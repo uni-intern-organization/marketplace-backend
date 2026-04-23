@@ -10,7 +10,7 @@
 5. Если формат не подошёл (другая версия Insomnia), используй вариант 2.
 
 После импорта:
-- В окружении **Base** задай `base_url`: `http://localhost:8081`.
+- В окружении **Base** задай `base_url`: `http://localhost:8080`.
 - После логина (POST login) скопируй `token` из ответа и вставь в переменную `token` в окружении — тогда все запросы из папки «Protected» будут отправляться с этим токеном (Bearer).
 - Для **POST files/resume** и **POST files/logo**: открой запрос → Body → выбери **Multipart Form** → добавь поле **file** (или **resume**) / **logo** типа **File** и выбери файл.
 
@@ -23,7 +23,7 @@
 - **docs/API_REQUESTS.md** — полное описание и примеры ответов.
 
 Кратко:
-- **Base URL:** `http://localhost:8081`
+- **Base URL:** `http://localhost:8080`
 - Защищённые запросы: вкладка **Auth** → **Bearer Token** → вставь токен из POST login.
 - JSON-запросы: Body → **JSON**, вставь пример из REQUEST_FORMATS.md.
 - Загрузка резюме: Body → **Multipart**, ключ `file` или `resume`, тип **File**, выбери PDF.

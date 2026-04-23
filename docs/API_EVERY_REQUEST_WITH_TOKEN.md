@@ -1,6 +1,6 @@
 # Каждый запрос: как отправить, какой токен, какие заголовки
 
-Base URL: `http://localhost:8081`  
+Base URL: `http://localhost:8080`  
 Токен получают из ответа **POST /api/auth/login** или **POST /api/auth/register** (поле `token`).  
 Для запросов «Токен: да» обязательно добавлять заголовок: **`Authorization: Bearer <ваш_токен>`**.
 
@@ -11,7 +11,7 @@ Base URL: `http://localhost:8081`
 | | |
 |--|--|
 | **Что делает** | Проверка, что сервер доступен |
-| **URL** | `http://localhost:8081/health` |
+| **URL** | `http://localhost:8080/health` |
 | **Метод** | `GET` |
 | **Токен** | **Не нужен** |
 | **Заголовки** | Ничего не отправлять |
@@ -19,7 +19,7 @@ Base URL: `http://localhost:8081`
 | **Query** | Нет |
 
 **Как отправить:**  
-`GET http://localhost:8081/health` — без заголовков.
+`GET http://localhost:8080/health` — без заголовков.
 
 ---
 
@@ -28,7 +28,7 @@ Base URL: `http://localhost:8081`
 | | |
 |--|--|
 | **Что делает** | Создание нового пользователя |
-| **URL** | `http://localhost:8081/api/auth/register` |
+| **URL** | `http://localhost:8080/api/auth/register` |
 | **Метод** | `POST` |
 | **Токен** | **Не нужен** |
 | **Заголовки** | `Content-Type: application/json` |
@@ -56,7 +56,7 @@ Body: указанный JSON. Токен не передавать.
 | | |
 |--|--|
 | **Что делает** | Получение JWT по email и паролю |
-| **URL** | `http://localhost:8081/api/auth/login` |
+| **URL** | `http://localhost:8080/api/auth/login` |
 | **Метод** | `POST` |
 | **Токен** | **Не нужен** |
 | **Заголовки** | `Content-Type: application/json` |
@@ -83,7 +83,7 @@ Body: указанный JSON. Токен не передавать.
 | | |
 |--|--|
 | **Что делает** | Данные текущего пользователя и его профиль |
-| **URL** | `http://localhost:8081/api/me` |
+| **URL** | `http://localhost:8080/api/me` |
 | **Метод** | `GET` |
 | **Токен** | **Да** — любая роль (student, recruiter, admin) |
 | **Заголовки** | `Authorization: Bearer <token>` |
@@ -100,7 +100,7 @@ Body: указанный JSON. Токен не передавать.
 | | |
 |--|--|
 | **Что делает** | Создание/обновление профиля студента (ФИО, контакты, навыки и т.д.) |
-| **URL** | `http://localhost:8081/api/me/profile` |
+| **URL** | `http://localhost:8080/api/me/profile` |
 | **Метод** | `PUT` или `PATCH` |
 | **Токен** | **Да** — роль **student** |
 | **Заголовки** | `Authorization: Bearer <token>`, `Content-Type: application/json` |
@@ -133,7 +133,7 @@ Body: указанный JSON. Токен не передавать.
 | | |
 |--|--|
 | **Что делает** | Создание/обновление профиля рекрутера |
-| **URL** | `http://localhost:8081/api/me/recruiter` |
+| **URL** | `http://localhost:8080/api/me/recruiter` |
 | **Метод** | `PUT` или `PATCH` |
 | **Токен** | **Да** — роль **recruiter** |
 | **Заголовки** | `Authorization: Bearer <token>`, `Content-Type: application/json` |
@@ -160,7 +160,7 @@ Body: указанный JSON. Токен не передавать.
 | | |
 |--|--|
 | **Что делает** | Данные пользователя по UUID |
-| **URL** | `http://localhost:8081/api/users?id=<uuid>` |
+| **URL** | `http://localhost:8080/api/users?id=<uuid>` |
 | **Метод** | `GET` |
 | **Токен** | **Да** — любая роль; студент/рекрутер могут запросить только себя, admin — любого |
 | **Заголовки** | `Authorization: Bearer <token>` |
@@ -169,7 +169,7 @@ Body: указанный JSON. Токен не передавать.
 
 **Как отправить:**  
 Заголовок: `Authorization: Bearer <token>`.  
-URL: `http://localhost:8081/api/users?id=550e8400-e29b-41d4-a716-446655440000`.
+URL: `http://localhost:8080/api/users?id=550e8400-e29b-41d4-a716-446655440000`.
 
 ---
 
@@ -178,7 +178,7 @@ URL: `http://localhost:8081/api/users?id=550e8400-e29b-41d4-a716-446655440000`.
 | | |
 |--|--|
 | **Что делает** | Загрузка PDF-резюме студента |
-| **URL** | `http://localhost:8081/api/files/resume` |
+| **URL** | `http://localhost:8080/api/files/resume` |
 | **Метод** | `POST` |
 | **Токен** | **Да** — роль **student** |
 | **Заголовки** | `Authorization: Bearer <token>`. Не ставить Content-Type — браузер подставит multipart сам |
@@ -196,7 +196,7 @@ Form-data: ключ `resume` или `file`, значение — файл PDF.
 | | |
 |--|--|
 | **Что делает** | Загрузка логотипа компании |
-| **URL** | `http://localhost:8081/api/files/logo` |
+| **URL** | `http://localhost:8080/api/files/logo` |
 | **Метод** | `POST` |
 | **Токен** | **Да** — роль **recruiter** |
 | **Заголовки** | `Authorization: Bearer <token>` |
@@ -214,7 +214,7 @@ Form-data: ключ `logo`, значение — файл изображения
 | | |
 |--|--|
 | **Что делает** | Временная ссылка для скачивания файла по ключу |
-| **URL** | `http://localhost:8081/api/files/url?key=<object_key>` |
+| **URL** | `http://localhost:8080/api/files/url?key=<object_key>` |
 | **Метод** | `GET` |
 | **Токен** | **Да** — любая роль |
 | **Заголовки** | `Authorization: Bearer <token>` |
@@ -223,7 +223,7 @@ Form-data: ключ `logo`, значение — файл изображения
 
 **Как отправить:**  
 Заголовок: `Authorization: Bearer <token>`.  
-URL: `http://localhost:8081/api/files/url?key=resumes/550e8400-.../file.pdf`.
+URL: `http://localhost:8080/api/files/url?key=resumes/550e8400-.../file.pdf`.
 
 ---
 
@@ -232,7 +232,7 @@ URL: `http://localhost:8081/api/files/url?key=resumes/550e8400-.../file.pdf`.
 | | |
 |--|--|
 | **Что делает** | Рекрутер отправляет приглашение студенту |
-| **URL** | `http://localhost:8081/api/invitations` |
+| **URL** | `http://localhost:8080/api/invitations` |
 | **Метод** | `POST` |
 | **Токен** | **Да** — роль **recruiter** |
 | **Заголовки** | `Authorization: Bearer <token>`, `Content-Type: application/json` |
@@ -259,7 +259,7 @@ URL: `http://localhost:8081/api/files/url?key=resumes/550e8400-.../file.pdf`.
 | | |
 |--|--|
 | **Что делает** | Список приглашений (для студента — входящие, для рекрутера — отправленные) |
-| **URL** | `http://localhost:8081/api/invitations` |
+| **URL** | `http://localhost:8080/api/invitations` |
 | **Метод** | `GET` |
 | **Токен** | **Да** — роль **student** или **recruiter** |
 | **Заголовки** | `Authorization: Bearer <token>` |
@@ -276,7 +276,7 @@ URL: `http://localhost:8081/api/files/url?key=resumes/550e8400-.../file.pdf`.
 | | |
 |--|--|
 | **Что делает** | Студент меняет статус приглашения |
-| **URL** | `http://localhost:8081/api/invitations?id=<uuid>` |
+| **URL** | `http://localhost:8080/api/invitations?id=<uuid>` |
 | **Метод** | `PATCH` |
 | **Токен** | **Да** — роль **student** |
 | **Заголовки** | `Authorization: Bearer <token>`, `Content-Type: application/json` |
@@ -294,7 +294,7 @@ URL: `.../api/invitations?id=<uuid_приглашения>`. Body: `{"status": "
 | | |
 |--|--|
 | **Что делает** | Студент отправляет заявку рекрутеру |
-| **URL** | `http://localhost:8081/api/applications` |
+| **URL** | `http://localhost:8080/api/applications` |
 | **Метод** | `POST` |
 | **Токен** | **Да** — роль **student** |
 | **Заголовки** | `Authorization: Bearer <token>`, `Content-Type: application/json` |
@@ -322,7 +322,7 @@ URL: `.../api/invitations?id=<uuid_приглашения>`. Body: `{"status": "
 | | |
 |--|--|
 | **Что делает** | Список заявок (студент — свои, рекрутер — входящие) |
-| **URL** | `http://localhost:8081/api/applications` |
+| **URL** | `http://localhost:8080/api/applications` |
 | **Метод** | `GET` |
 | **Токен** | **Да** — роль **student** или **recruiter** |
 | **Заголовки** | `Authorization: Bearer <token>` |
@@ -339,7 +339,7 @@ URL: `.../api/invitations?id=<uuid_приглашения>`. Body: `{"status": "
 | | |
 |--|--|
 | **Что делает** | Рекрутер меняет статус заявки |
-| **URL** | `http://localhost:8081/api/applications?id=<uuid>` |
+| **URL** | `http://localhost:8080/api/applications?id=<uuid>` |
 | **Метод** | `PATCH` |
 | **Токен** | **Да** — роль **recruiter** |
 | **Заголовки** | `Authorization: Bearer <token>`, `Content-Type: application/json` |
@@ -357,7 +357,7 @@ URL: `.../api/applications?id=<uuid_заявки>`. Body: `{"status": "accepted"
 | | |
 |--|--|
 | **Что делает** | Поиск пользователей (admin — все роли, recruiter — только студенты) |
-| **URL** | `http://localhost:8081/api/search/users?role=<role>&email=<префикс>` |
+| **URL** | `http://localhost:8080/api/search/users?role=<role>&email=<префикс>` |
 | **Метод** | `GET` |
 | **Токен** | **Да** — роль **admin** или **recruiter** |
 | **Заголовки** | `Authorization: Bearer <token>` |
@@ -366,7 +366,7 @@ URL: `.../api/applications?id=<uuid_заявки>`. Body: `{"status": "accepted"
 
 **Как отправить:**  
 Токен: `Authorization: Bearer <token>`, роль admin или recruiter.  
-URL: `http://localhost:8081/api/search/users?role=student&email=stu`.
+URL: `http://localhost:8080/api/search/users?role=student&email=stu`.
 
 ---
 
@@ -375,7 +375,7 @@ URL: `http://localhost:8081/api/search/users?role=student&email=stu`.
 | | |
 |--|--|
 | **Что делает** | Рекрутер создаёт вакансию (стажировку) |
-| **URL** | `http://localhost:8081/api/vacancies` |
+| **URL** | `http://localhost:8080/api/vacancies` |
 | **Метод** | `POST` |
 | **Токен** | **Да** — роль **recruiter** |
 | **Заголовки** | `Authorization: Bearer <token>`, `Content-Type: application/json` |
@@ -406,7 +406,7 @@ URL: `http://localhost:8081/api/search/users?role=student&email=stu`.
 | | |
 |--|--|
 | **Что делает** | Список вакансий (с фильтрами) или одна вакансия по id |
-| **URL** | Список: `http://localhost:8081/api/vacancies`. Одна: `http://localhost:8081/api/vacancies?id=<uuid>` |
+| **URL** | Список: `http://localhost:8080/api/vacancies`. Одна: `http://localhost:8080/api/vacancies?id=<uuid>` |
 | **Метод** | `GET` |
 | **Токен** | **Да** — любая роль (student, recruiter, admin) |
 | **Заголовки** | `Authorization: Bearer <token>` |
@@ -415,8 +415,8 @@ URL: `http://localhost:8081/api/search/users?role=student&email=stu`.
 
 **Как отправить:**  
 Токен: `Authorization: Bearer <token>`.  
-Список: `GET http://localhost:8081/api/vacancies?location=Remote`.  
-Одна: `GET http://localhost:8081/api/vacancies?id=<uuid>`.
+Список: `GET http://localhost:8080/api/vacancies?location=Remote`.  
+Одна: `GET http://localhost:8080/api/vacancies?id=<uuid>`.
 
 ---
 
@@ -425,7 +425,7 @@ URL: `http://localhost:8081/api/search/users?role=student&email=stu`.
 | | |
 |--|--|
 | **Что делает** | Вакансии, созданные текущим рекрутером |
-| **URL** | `http://localhost:8081/api/vacancies/mine` |
+| **URL** | `http://localhost:8080/api/vacancies/mine` |
 | **Метод** | `GET` |
 | **Токен** | **Да** — роль **recruiter** |
 | **Заголовки** | `Authorization: Bearer <token>` |
@@ -442,7 +442,7 @@ URL: `http://localhost:8081/api/search/users?role=student&email=stu`.
 | | |
 |--|--|
 | **Что делает** | Рекрутер редактирует свою вакансию |
-| **URL** | `http://localhost:8081/api/vacancies?id=<uuid>` |
+| **URL** | `http://localhost:8080/api/vacancies?id=<uuid>` |
 | **Метод** | `PUT` или `PATCH` |
 | **Токен** | **Да** — роль **recruiter** |
 | **Заголовки** | `Authorization: Bearer <token>`, `Content-Type: application/json` |
@@ -460,7 +460,7 @@ URL: `.../api/vacancies?id=<uuid>`. Body: JSON с полями вакансии.
 | | |
 |--|--|
 | **Что делает** | Рекрутер удаляет свою вакансию |
-| **URL** | `http://localhost:8081/api/vacancies?id=<uuid>` |
+| **URL** | `http://localhost:8080/api/vacancies?id=<uuid>` |
 | **Метод** | `DELETE` |
 | **Токен** | **Да** — роль **recruiter** |
 | **Заголовки** | `Authorization: Bearer <token>` |
@@ -469,7 +469,7 @@ URL: `.../api/vacancies?id=<uuid>`. Body: JSON с полями вакансии.
 
 **Как отправить:**  
 Токен: `Authorization: Bearer <token>`, роль recruiter.  
-Метод: DELETE. URL: `http://localhost:8081/api/vacancies?id=<uuid>`.
+Метод: DELETE. URL: `http://localhost:8080/api/vacancies?id=<uuid>`.
 
 ---
 
@@ -478,7 +478,7 @@ URL: `.../api/vacancies?id=<uuid>`. Body: JSON с полями вакансии.
 | | |
 |--|--|
 | **Что делает** | Список студентов, подходящих под вакансию, с полем match_score |
-| **URL** | `http://localhost:8081/api/match/vacancy?id=<vacancy_uuid>` |
+| **URL** | `http://localhost:8080/api/match/vacancy?id=<vacancy_uuid>` |
 | **Метод** | `GET` |
 | **Токен** | **Да** — роль **recruiter** |
 | **Заголовки** | `Authorization: Bearer <token>` |
@@ -487,7 +487,7 @@ URL: `.../api/vacancies?id=<uuid>`. Body: JSON с полями вакансии.
 
 **Как отправить:**  
 Токен: `Authorization: Bearer <token>`, роль recruiter.  
-URL: `http://localhost:8081/api/match/vacancy?id=<uuid_вакансии>`.
+URL: `http://localhost:8080/api/match/vacancy?id=<uuid_вакансии>`.
 
 ---
 
@@ -496,7 +496,7 @@ URL: `http://localhost:8081/api/match/vacancy?id=<uuid_вакансии>`.
 | | |
 |--|--|
 | **Что делает** | Вакансии, подходящие студенту, с полем match_score |
-| **URL** | `http://localhost:8081/api/match/recommendations` |
+| **URL** | `http://localhost:8080/api/match/recommendations` |
 | **Метод** | `GET` |
 | **Токен** | **Да** — роль **student** |
 | **Заголовки** | `Authorization: Bearer <token>` |
@@ -513,7 +513,7 @@ URL: `http://localhost:8081/api/match/vacancy?id=<uuid_вакансии>`.
 | | |
 |--|--|
 | **Что делает** | Список студентов с профилями по навыкам, опыту, локации, образованию |
-| **URL** | `http://localhost:8081/api/search/students?skills=&experience_min=&location=&education=` |
+| **URL** | `http://localhost:8080/api/search/students?skills=&experience_min=&location=&education=` |
 | **Метод** | `GET` |
 | **Токен** | **Да** — роль **recruiter** или **admin** |
 | **Заголовки** | `Authorization: Bearer <token>` |
@@ -522,7 +522,7 @@ URL: `http://localhost:8081/api/match/vacancy?id=<uuid_вакансии>`.
 
 **Как отправить:**  
 Токен: `Authorization: Bearer <token>`, роль recruiter или admin.  
-URL: `http://localhost:8081/api/search/students?skills=Go,React&experience_min=0`.
+URL: `http://localhost:8080/api/search/students?skills=Go,React&experience_min=0`.
 
 ---
 

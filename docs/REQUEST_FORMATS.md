@@ -1,6 +1,6 @@
 # Request formats: JSON and other
 
-Base URL: `http://localhost:8081`  
+Base URL: `http://localhost:8080`  
 Protected routes need: `Authorization: Bearer <token>`
 
 ---
@@ -125,7 +125,7 @@ Protected routes need: `Authorization: Bearer <token>`
 
 **Example (curl):**
 ```bash
-curl -X POST http://localhost:8081/api/files/resume \
+curl -X POST http://localhost:8080/api/files/resume \
   -H "Authorization: Bearer <token>" \
   -F "file=@/path/to/resume.pdf"
 ```
@@ -143,7 +143,7 @@ curl -X POST http://localhost:8081/api/files/resume \
 
 **Example (curl):**
 ```bash
-curl -X POST http://localhost:8081/api/files/logo \
+curl -X POST http://localhost:8080/api/files/logo \
   -H "Authorization: Bearer <token>" \
   -F "logo=@/path/to/logo.png"
 ```

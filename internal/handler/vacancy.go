@@ -64,6 +64,10 @@ func vacancyToResponse(v *model.Vacancy, aesKey []byte) VacancyResponse {
 		b, _ := crypto.Decrypt(v.DescriptionEnc, aesKey)
 		resp.Description = string(b)
 	}
+	// Вручную вставлённые в БД записи с пустым title_enc: показываем компанию, чтобы список не был «пустым»
+	if resp.Title == "" && v.CompanyName != "" {
+		resp.Title = v.CompanyName
+	}
 	return resp
 }
 

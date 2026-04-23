@@ -1,6 +1,6 @@
 # Структуры запросов API для фронтенда
 
-Base URL: `http://localhost:8081`  
+Base URL: `http://localhost:8080`  
 Защищённые запросы: заголовок `Authorization: Bearer <token>`  
 Content-Type для JSON: `application/json`
 
@@ -8,7 +8,7 @@ Content-Type для JSON: `application/json`
 
 ## 1. Health (без авторизации)
 
-**URL:** `http://localhost:8081/health`  
+**URL:** `http://localhost:8080/health`  
 **Метод:** `GET`  
 **Заголовки:** не нужны  
 **Тело:** нет  
@@ -19,7 +19,7 @@ Content-Type для JSON: `application/json`
 
 ## 2. Регистрация
 
-**URL:** `http://localhost:8081/api/auth/register`  
+**URL:** `http://localhost:8080/api/auth/register`  
 **Метод:** `POST`  
 **Заголовки:** `Content-Type: application/json`  
 **Тело запроса (JSON):**
@@ -56,7 +56,7 @@ Content-Type для JSON: `application/json`
 
 ## 3. Вход (логин)
 
-**URL:** `http://localhost:8081/api/auth/login`  
+**URL:** `http://localhost:8080/api/auth/login`  
 **Метод:** `POST`  
 **Заголовки:** `Content-Type: application/json`  
 **Тело запроса (JSON):**
@@ -91,7 +91,7 @@ Content-Type для JSON: `application/json`
 
 ## 4. Текущий пользователь и профиль
 
-**URL:** `http://localhost:8081/api/me`  
+**URL:** `http://localhost:8080/api/me`  
 **Метод:** `GET`  
 **Заголовки:** `Authorization: Bearer <token>`  
 **Тело:** нет  
@@ -130,7 +130,7 @@ Content-Type для JSON: `application/json`
 
 ## 5. Обновить профиль студента
 
-**URL:** `http://localhost:8081/api/me/profile`  
+**URL:** `http://localhost:8080/api/me/profile`  
 **Метод:** `PUT` или `PATCH`  
 **Роль:** student  
 **Заголовки:** `Authorization: Bearer <token>`, `Content-Type: application/json`  
@@ -156,7 +156,7 @@ Content-Type для JSON: `application/json`
 
 ## 6. Обновить профиль рекрутера
 
-**URL:** `http://localhost:8081/api/me/recruiter`  
+**URL:** `http://localhost:8080/api/me/recruiter`  
 **Метод:** `PUT` или `PATCH`  
 **Роль:** recruiter  
 **Заголовки:** `Authorization: Bearer <token>`, `Content-Type: application/json`  
@@ -184,13 +184,13 @@ Content-Type для JSON: `application/json`
 
 Используется, в частности, когда рекрутер открывает профиль студента из заявки. Рекрутер и админ могут запрашивать любого пользователя; остальные — только себя.
 
-**URL:** `http://localhost:8081/api/users?id=<uuid>`  
+**URL:** `http://localhost:8080/api/users?id=<uuid>`  
 **Метод:** `GET`  
 **Заголовки:** `Authorization: Bearer <token>`  
 **Query-параметры:** `id` — UUID пользователя (например, student_id из заявки)  
 **Тело:** нет  
 
-**Пример запроса:** `GET http://localhost:8081/api/users?id=550e8400-e29b-41d4-a716-446655440000`
+**Пример запроса:** `GET http://localhost:8080/api/users?id=550e8400-e29b-41d4-a716-446655440000`
 
 **Пример ответа (200) — пользователь-студент (возвращается полный профиль):**
 ```json
@@ -218,7 +218,7 @@ Content-Type для JSON: `application/json`
 
 ## 8. Загрузить резюме (PDF)
 
-**URL:** `http://localhost:8081/api/files/resume`  
+**URL:** `http://localhost:8080/api/files/resume`  
 **Метод:** `POST`  
 **Роль:** student  
 **Заголовки:** `Authorization: Bearer <token>`  
@@ -245,7 +245,7 @@ Content-Type для JSON: `application/json`
 
 ## 9. Загрузить логотип компании
 
-**URL:** `http://localhost:8081/api/files/logo`  
+**URL:** `http://localhost:8080/api/files/logo`  
 **Метод:** `POST`  
 **Роль:** recruiter  
 **Заголовки:** `Authorization: Bearer <token>`  
@@ -267,13 +267,13 @@ Content-Type для JSON: `application/json`
 
 ## 10. Получить ссылку на скачивание файла
 
-**URL:** `http://localhost:8081/api/files/url?key=<object_key>`  
+**URL:** `http://localhost:8080/api/files/url?key=<object_key>`  
 **Метод:** `GET`  
 **Заголовки:** `Authorization: Bearer <token>`  
 **Query-параметры:** `key` — значение `object_key` из ответа загрузки резюме/логотипа  
 **Тело:** нет  
 
-**Пример запроса:** `GET http://localhost:8081/api/files/url?key=resumes/550e8400-.../abc123.pdf`
+**Пример запроса:** `GET http://localhost:8080/api/files/url?key=resumes/550e8400-.../abc123.pdf`
 
 **Пример ответа (200):**
 ```json
@@ -288,7 +288,7 @@ Content-Type для JSON: `application/json`
 
 ## 11. Создать приглашение (рекрутер → студент)
 
-**URL:** `http://localhost:8081/api/invitations`  
+**URL:** `http://localhost:8080/api/invitations`  
 **Метод:** `POST`  
 **Роль:** recruiter  
 **Заголовки:** `Authorization: Bearer <token>`, `Content-Type: application/json`  
@@ -324,7 +324,7 @@ Content-Type для JSON: `application/json`
 
 ## 12. Список приглашений
 
-**URL:** `http://localhost:8081/api/invitations`  
+**URL:** `http://localhost:8080/api/invitations`  
 **Метод:** `GET`  
 **Роль:** student или recruiter  
 **Заголовки:** `Authorization: Bearer <token>`  
@@ -348,7 +348,7 @@ Content-Type для JSON: `application/json`
 
 ## 13. Принять / отклонить приглашение (студент)
 
-**URL:** `http://localhost:8081/api/invitations?id=<uuid>`  
+**URL:** `http://localhost:8080/api/invitations?id=<uuid>`  
 **Метод:** `PATCH`  
 **Роль:** student  
 **Заголовки:** `Authorization: Bearer <token>`, `Content-Type: application/json`  
@@ -373,14 +373,14 @@ Content-Type для JSON: `application/json`
 |--------|-------|-------------|-----------------------------|
 | status | string| да          | `"accepted"` \| `"declined"` |
 
-**Пример запроса:** `PATCH http://localhost:8081/api/invitations?id=inv-uuid-...`  
+**Пример запроса:** `PATCH http://localhost:8080/api/invitations?id=inv-uuid-...`  
 **Пример ответа (200):** `{"status": "accepted"}`
 
 ---
 
 ## 14. Подать заявку (студент → рекрутер)
 
-**URL:** `http://localhost:8081/api/applications`  
+**URL:** `http://localhost:8080/api/applications`  
 **Метод:** `POST`  
 **Роль:** student  
 **Заголовки:** `Authorization: Bearer <token>`, `Content-Type: application/json`  
@@ -421,7 +421,7 @@ Content-Type для JSON: `application/json`
 
 ## 15. Список заявок
 
-**URL:** `http://localhost:8081/api/applications`  
+**URL:** `http://localhost:8080/api/applications`  
 **Метод:** `GET`  
 **Роль:** student или recruiter  
 **Заголовки:** `Authorization: Bearer <token>`  
@@ -448,7 +448,7 @@ Content-Type для JSON: `application/json`
 
 ## 16. Изменить статус заявки (рекрутер)
 
-**URL:** `http://localhost:8081/api/applications?id=<uuid>`  
+**URL:** `http://localhost:8080/api/applications?id=<uuid>`  
 **Метод:** `PATCH`  
 **Роль:** recruiter  
 **Заголовки:** `Authorization: Bearer <token>`, `Content-Type: application/json`  
@@ -467,14 +467,14 @@ Content-Type для JSON: `application/json`
 |--------|-------|-------------|----------------------------------------|
 | status | string| да          | `"viewed"` \| `"accepted"` \| `"rejected"` |
 
-**Пример запроса:** `PATCH http://localhost:8081/api/applications?id=app-uuid-...`  
+**Пример запроса:** `PATCH http://localhost:8080/api/applications?id=app-uuid-...`  
 **Пример ответа (200):** `{"status": "accepted"}`
 
 ---
 
 ## 17. Поиск пользователей
 
-**URL:** `http://localhost:8081/api/search/users?role=<role>&email=<префикс>`  
+**URL:** `http://localhost:8080/api/search/users?role=<role>&email=<префикс>`  
 **Метод:** `GET`  
 **Роль:** admin или recruiter (рекрутер — только по студентам)  
 **Заголовки:** `Authorization: Bearer <token>`  
@@ -485,7 +485,7 @@ Content-Type для JSON: `application/json`
 | role     | string| нет         | `"student"` \| `"recruiter"`       |
 | email    | string| нет         | Префикс email (поиск LIKE prefix%) |
 
-**Пример запроса:** `GET http://localhost:8081/api/search/users?role=student&email=stu`
+**Пример запроса:** `GET http://localhost:8080/api/search/users?role=student&email=stu`
 
 **Пример ответа (200):** массив пользователей (без паролей):
 ```json

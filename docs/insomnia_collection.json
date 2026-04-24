@@ -1,0 +1,232 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "resources": [
+    {
+      "_id": "wrk_marketplace",
+      "_type": "workspace",
+      "name": "Marketplace Backend"
+    },
+    {
+      "_id": "env_base",
+      "_type": "environment",
+      "parentId": "wrk_marketplace",
+      "name": "Base",
+      "data": {
+        "base_url": "http://localhost:8080",
+        "token": ""
+      }
+    },
+    {
+      "_id": "fld_public",
+      "_type": "request_group",
+      "parentId": "wrk_marketplace",
+      "name": "1. Public"
+    },
+    {
+      "_id": "req_health",
+      "_type": "request",
+      "parentId": "fld_public",
+      "name": "GET health",
+      "method": "GET",
+      "url": "{{ base_url }}/health",
+      "body": {}
+    },
+    {
+      "_id": "req_register",
+      "_type": "request",
+      "parentId": "fld_public",
+      "name": "POST register",
+      "method": "POST",
+      "url": "{{ base_url }}/api/auth/register",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"email\": \"student@example.com\",\n  \"password\": \"YourPassword123\",\n  \"role\": \"student\"\n}"
+      },
+      "headers": [{"name": "Content-Type", "value": "application/json", "disabled": false}]
+    },
+    {
+      "_id": "req_login",
+      "_type": "request",
+      "parentId": "fld_public",
+      "name": "POST login",
+      "method": "POST",
+      "url": "{{ base_url }}/api/auth/login",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"email\": \"student@example.com\",\n  \"password\": \"YourPassword123\"\n}"
+      },
+      "headers": [{"name": "Content-Type", "value": "application/json", "disabled": false}]
+    },
+    {
+      "_id": "fld_protected",
+      "_type": "request_group",
+      "parentId": "wrk_marketplace",
+      "name": "2. Protected (set token in Auth)"
+    },
+    {
+      "_id": "req_me",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "GET me",
+      "method": "GET",
+      "url": "{{ base_url }}/api/me",
+      "body": {},
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    },
+    {
+      "_id": "req_me_profile",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "PUT me/profile (student)",
+      "method": "PUT",
+      "url": "{{ base_url }}/api/me/profile",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"full_name\": \"Ivan Ivanov\",\n  \"phone\": \"+79001234567\",\n  \"bio\": \"Student, looking for internship\"\n}"
+      },
+      "headers": [{"name": "Content-Type", "value": "application/json", "disabled": false}],
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    },
+    {
+      "_id": "req_me_recruiter",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "PUT me/recruiter",
+      "method": "PUT",
+      "url": "{{ base_url }}/api/me/recruiter",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"company_name\": \"Company LLC\",\n  \"full_name\": \"Petr Petrov\",\n  \"phone\": \"+79007654321\"\n}"
+      },
+      "headers": [{"name": "Content-Type", "value": "application/json", "disabled": false}],
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    },
+    {
+      "_id": "req_users",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "GET users?id=",
+      "method": "GET",
+      "url": "{{ base_url }}/api/users?id=USER_UUID_HERE",
+      "body": {},
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    },
+    {
+      "_id": "req_invitations_list",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "GET invitations",
+      "method": "GET",
+      "url": "{{ base_url }}/api/invitations",
+      "body": {},
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    },
+    {
+      "_id": "req_invitations_create",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "POST invitations (recruiter)",
+      "method": "POST",
+      "url": "{{ base_url }}/api/invitations",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"student_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"message\": \"We invite you to an internship.\"\n}"
+      },
+      "headers": [{"name": "Content-Type", "value": "application/json", "disabled": false}],
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    },
+    {
+      "_id": "req_invitations_patch",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "PATCH invitations?id= (student)",
+      "method": "PATCH",
+      "url": "{{ base_url }}/api/invitations?id=INVITATION_UUID",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"status\": \"accepted\"\n}"
+      },
+      "headers": [{"name": "Content-Type", "value": "application/json", "disabled": false}],
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    },
+    {
+      "_id": "req_applications_list",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "GET applications",
+      "method": "GET",
+      "url": "{{ base_url }}/api/applications",
+      "body": {},
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    },
+    {
+      "_id": "req_applications_create",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "POST applications (student)",
+      "method": "POST",
+      "url": "{{ base_url }}/api/applications",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"recruiter_id\": \"660e8400-e29b-41d4-a716-446655440001\",\n  \"cover_letter\": \"I am interested in this position.\"\n}"
+      },
+      "headers": [{"name": "Content-Type", "value": "application/json", "disabled": false}],
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    },
+    {
+      "_id": "req_applications_patch",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "PATCH applications?id= (recruiter)",
+      "method": "PATCH",
+      "url": "{{ base_url }}/api/applications?id=APPLICATION_UUID",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"status\": \"accepted\"\n}"
+      },
+      "headers": [{"name": "Content-Type", "value": "application/json", "disabled": false}],
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    },
+    {
+      "_id": "req_files_url",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "GET files/url?key=",
+      "method": "GET",
+      "url": "{{ base_url }}/api/files/url?key=OBJECT_KEY",
+      "body": {},
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    },
+    {
+      "_id": "req_search_users",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "GET search/users",
+      "method": "GET",
+      "url": "{{ base_url }}/api/search/users?role=student&email=",
+      "body": {},
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    },
+    {
+      "_id": "req_resume",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "POST files/resume (student, form: file)",
+      "method": "POST",
+      "url": "{{ base_url }}/api/files/resume",
+      "body": {},
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    },
+    {
+      "_id": "req_logo",
+      "_type": "request",
+      "parentId": "fld_protected",
+      "name": "POST files/logo (recruiter, form: logo)",
+      "method": "POST",
+      "url": "{{ base_url }}/api/files/logo",
+      "body": {},
+      "authentication": {"type": "bearer", "token": "{{ token }}"}
+    }
+  ]
+}

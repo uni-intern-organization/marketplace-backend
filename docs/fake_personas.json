@@ -1,0 +1,112 @@
+{
+  "personas": {
+    "student_1": {
+      "name": "Алексей Студентов",
+      "email": "aleksey.student@university.edu",
+      "password": "StudentPass2024!",
+      "role": "student",
+      "profile": {
+        "full_name": "Алексей Студентов",
+        "phone": "+7 (912) 345-67-89",
+        "bio": "Студент 4 курса МГУ, факультет ВМК. Интересует backend на Go и стажировки в IT."
+      }
+    },
+    "student_2": {
+      "name": "Мария Иванова",
+      "email": "maria.ivanova@mail.ru",
+      "password": "MariaSecure99",
+      "role": "student",
+      "profile": {
+        "full_name": "Мария Иванова",
+        "phone": "+7 (923) 456-78-90",
+        "bio": "Фронтенд-разработка, React. Ищу стажировку на лето 2025."
+      }
+    },
+    "recruiter_1": {
+      "name": "Дмитрий Рекрутеров",
+      "email": "d.recruiter@techcorp.ru",
+      "password": "RecruiterTech1!",
+      "role": "recruiter",
+      "profile": {
+        "company_name": "ООО ТехКорп",
+        "full_name": "Дмитрий Рекрутеров",
+        "phone": "+7 (495) 123-45-67"
+      }
+    },
+    "recruiter_2": {
+      "name": "Елена HR",
+      "email": "elena.hr@startup.io",
+      "password": "ElenaHR2024",
+      "role": "recruiter",
+      "profile": {
+        "company_name": "Стартап Инновации",
+        "full_name": "Елена HR",
+        "phone": "+7 (916) 789-01-23"
+      }
+    },
+    "admin_1": {
+      "name": "Админ Системы",
+      "email": "admin@marketplace.local",
+      "password": "AdminSecure#1",
+      "role": "admin"
+    }
+  },
+  "register_payloads": {
+    "student_1": {
+      "email": "aleksey.student@university.edu",
+      "password": "StudentPass2024!",
+      "role": "student"
+    },
+    "student_2": {
+      "email": "maria.ivanova@mail.ru",
+      "password": "MariaSecure99",
+      "role": "student"
+    },
+    "recruiter_1": {
+      "email": "d.recruiter@techcorp.ru",
+      "password": "RecruiterTech1!",
+      "role": "recruiter"
+    },
+    "recruiter_2": {
+      "email": "elena.hr@startup.io",
+      "password": "ElenaHR2024",
+      "role": "recruiter"
+    },
+    "admin_1": {
+      "email": "admin@marketplace.local",
+      "password": "AdminSecure#1",
+      "role": "admin"
+    }
+  },
+  "login_payloads": {
+    "student_1": { "email": "aleksey.student@university.edu", "password": "StudentPass2024!" },
+    "student_2": { "email": "maria.ivanova@mail.ru", "password": "MariaSecure99" },
+    "recruiter_1": { "email": "d.recruiter@techcorp.ru", "password": "RecruiterTech1!" },
+    "recruiter_2": { "email": "elena.hr@startup.io", "password": "ElenaHR2024" },
+    "admin_1": { "email": "admin@marketplace.local", "password": "AdminSecure#1" }
+  },
+  "profile_student": {
+    "full_name": "Алексей Студентов",
+    "phone": "+7 (912) 345-67-89",
+    "bio": "Студент 4 курса МГУ, факультет ВМК. Интересует backend на Go и стажировки в IT."
+  },
+  "profile_recruiter": {
+    "company_name": "ООО ТехКорп",
+    "full_name": "Дмитрий Рекрутеров",
+    "phone": "+7 (495) 123-45-67"
+  },
+  "invitation_example": {
+    "student_id": "UUID_СТУДЕНТА_СЮДА",
+    "message": "Здравствуйте! Приглашаем вас на стажировку в отдел разработки. Срок: 3 месяца, возможность удалёнки. Напишите, когда удобно созвониться."
+  },
+  "invitation_accept": { "status": "accepted" },
+  "invitation_decline": { "status": "declined" },
+  "application_example": {
+    "recruiter_id": "UUID_РЕКРУТЕРА_СЮДА",
+    "invitation_id": "UUID_ПРИГЛАШЕНИЯ_ИЛИ_УБРАТЬ",
+    "cover_letter": "Добрый день! Откликаюсь на приглашение. Готов обсудить детали и прислать резюме. С уважением, Алексей."
+  },
+  "application_status_viewed": { "status": "viewed" },
+  "application_status_accepted": { "status": "accepted" },
+  "application_status_rejected": { "status": "rejected" }
+}

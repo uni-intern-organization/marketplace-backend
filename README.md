@@ -82,3 +82,4 @@ git add .
 git commit -m "Backend: Go API, PostgreSQL, MinIO, JWT, RBAC, migrations"
 git push -u origin main
 ```
+# marketplace-rag-service

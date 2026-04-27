@@ -88,7 +88,13 @@ func main() {
 		EmbeddingModel: cfg.OpenAI.EmbeddingModel,
 	}
 	ragIndexer := rag.NewIndexer(ragChunkRepo, openAIClient, aesKey, cfg.OpenAI.EmbeddingModel)
-	ragEngine := &rag.Engine{Chunks: ragChunkRepo, Client: openAIClient, EmbedModel: cfg.OpenAI.EmbeddingModel}
+	ragEngine := &rag.Engine{
+		Chunks:     ragChunkRepo,
+		Vacancies:  vacancyRepo,
+		AESKey:     aesKey,
+		Client:     openAIClient,
+		EmbedModel: cfg.OpenAI.EmbeddingModel,
+	}
 	ragHandler := handler.NewRAGHandler(ragEngine)
 	adminRagHandler := handler.NewAdminRAGHandler(vacancyRepo, ragIndexer)
 
@@ -124,6 +130,7 @@ func main() {
 	matchHandler := handler.NewMatchHandler(vacancyRepo, userRepo, aesKey)
 	searchHandler := handler.NewSearchHandler(pool, userRepo)
 	aiCareerHandler := handler.NewAICareerHandler(cfg.OpenAI.APIKey, cfg.OpenAI.BaseURL, cfg.OpenAI.Model)
+	careerChatHandler := handler.NewCareerChatHandler(openAIClient, userRepo, recruiterRepo, vacancyRepo, aesKey)
 
 	mux := http.NewServeMux()
 
@@ -162,6 +169,9 @@ func main() {
 	// Career directions (LLM). Same JSON contract as VITE_CAREER_AI_API_URL on the frontend.
 	mux.HandleFunc("POST /api/ai/career/suggest", aiCareerHandler.Suggest)
 
+	// Career chatbot (multi-turn; JWT required)
+	mux.Handle("POST /api/chat/career", authMiddleware(http.HandlerFunc(careerChatHandler.Chat)))
+
 	// RAG: resume text + indexed vacancy embeddings + LLM narrative and vacancy id list
 	mux.HandleFunc("POST /api/career/rag", ragHandler.CareerRAG)
 	mux.Handle("POST /api/admin/rag/reindex", authMiddleware(middleware.RequireRole(model.RoleAdmin)(http.HandlerFunc(adminRagHandler.ReindexAll))))
@@ -185,6 +195,7 @@ func main() {
 	}
 	go func() {
 		log.Println("listening on :" + cfg.Server.Port)
+		log.Println("routes include: POST /api/chat/career (JWT), POST /api/career/rag (public), POST /api/ai/career/suggest")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)
 		}

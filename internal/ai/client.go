@@ -139,3 +139,78 @@ func (c *Client) ChatJSONObject(ctx context.Context, system, user string) (strin
 	}
 	return oai.Choices[0].Message.Content, nil
 }
+
+// ChatMessage is one turn for OpenAI chat completions.
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// ChatCompletion sends a multi-turn conversation (must include optional system as first element).
+func (c *Client) ChatCompletion(ctx context.Context, msgs []ChatMessage, temperature float64, maxTokens int) (string, error) {
+	if strings.TrimSpace(c.APIKey) == "" {
+		return "", fmt.Errorf("openai: missing api key")
+	}
+	if len(msgs) == 0 {
+		return "", fmt.Errorf("chat: empty messages")
+	}
+	m := c.ChatModel
+	if m == "" {
+		m = "gpt-4o-mini"
+	}
+	if temperature <= 0 {
+		temperature = 0.7
+	}
+	if maxTokens <= 0 {
+		maxTokens = 2048
+	}
+	rawMsgs := make([]map[string]string, 0, len(msgs))
+	for _, x := range msgs {
+		r := strings.TrimSpace(x.Role)
+		if r != "system" && r != "user" && r != "assistant" {
+			continue
+		}
+		rawMsgs = append(rawMsgs, map[string]string{"role": r, "content": x.Content})
+	}
+	if len(rawMsgs) == 0 {
+		return "", fmt.Errorf("chat: no valid messages")
+	}
+	body, err := json.Marshal(map[string]any{
+		"model":       m,
+		"messages":    rawMsgs,
+		"temperature": temperature,
+		"max_tokens":  maxTokens,
+	})
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base()+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	res, err := c.http().Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(res.Body)
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return "", fmt.Errorf("chat: %d %s", res.StatusCode, string(raw))
+	}
+	var oai struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(raw, &oai); err != nil {
+		return "", err
+	}
+	if len(oai.Choices) == 0 {
+		return "", fmt.Errorf("chat: empty choices")
+	}
+	return oai.Choices[0].Message.Content, nil
+}

@@ -27,10 +27,11 @@ type careerRAGRequest struct {
 }
 
 type careerRAGResponse struct {
-	Narrative  string         `json:"narrative"`
-	VacancyIDs []string       `json:"vacancy_ids"`
-	Retrieval  []rag.TopChunk `json:"retrieval_top,omitempty"`
-	Error      string         `json:"error,omitempty"`
+	Narrative      string           `json:"narrative"`
+	VacancyIDs     []string         `json:"vacancy_ids"`
+	Retrieval      []rag.TopChunk   `json:"retrieval_top,omitempty"`
+	VacancyCards   []rag.VacancyPick `json:"vacancy_cards,omitempty"`
+	Error          string           `json:"error,omitempty"`
 }
 
 // CareerRAG is open to the same users as the career page: no auth, text-only (length limits).
@@ -73,9 +74,10 @@ func (h *RAGHandler) CareerRAG(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(careerRAGResponse{
-		Narrative:  out.Narrative,
-		VacancyIDs: ids,
-		Retrieval:  out.Chunks,
+		Narrative:    out.Narrative,
+		VacancyIDs:   ids,
+		Retrieval:    out.Chunks,
+		VacancyCards: out.Picks,
 	})
 }
 

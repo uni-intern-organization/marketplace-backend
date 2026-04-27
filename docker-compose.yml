@@ -1,4 +1,5 @@
 # Создайте .env рядом с этим файлом: OPENAI_API_KEY=sk-...
+# После git pull с новыми эндпоинтами: docker compose build api && docker compose up -d api
 # env_file кладёт переменные в контейнер. DB_HOST/DB_PORT ниже переопределяют localhost из .env для доступа к postgres.
 services:
   api:
@@ -7,6 +8,10 @@ services:
       - .env
     ports:
       - "8080:8080"
+    # Обход падений Docker DNS (127.0.0.11: lookup api.openai.com … server misbehaving)
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       PORT: "8080"
       DB_HOST: postgres

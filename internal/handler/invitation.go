@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/uni-intern-organization/marketplace-backend/internal/billing"
 	"github.com/uni-intern-organization/marketplace-backend/internal/crypto"
 	"github.com/uni-intern-organization/marketplace-backend/internal/middleware"
 	"github.com/uni-intern-organization/marketplace-backend/internal/model"
@@ -12,13 +13,14 @@ import (
 )
 
 type InvitationHandler struct {
-	invRepo *repository.InvitationRepository
-	userRepo *repository.UserRepository
-	aesKey  []byte
+	invRepo    *repository.InvitationRepository
+	userRepo   *repository.UserRepository
+	billingSvc *billing.Service
+	aesKey     []byte
 }
 
-func NewInvitationHandler(invRepo *repository.InvitationRepository, userRepo *repository.UserRepository, aesKey []byte) *InvitationHandler {
-	return &InvitationHandler{invRepo: invRepo, userRepo: userRepo, aesKey: aesKey}
+func NewInvitationHandler(invRepo *repository.InvitationRepository, userRepo *repository.UserRepository, billingSvc *billing.Service, aesKey []byte) *InvitationHandler {
+	return &InvitationHandler{invRepo: invRepo, userRepo: userRepo, billingSvc: billingSvc, aesKey: aesKey}
 }
 
 type CreateInvitationRequest struct {
@@ -43,6 +45,15 @@ func (h *InvitationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetClaims(r.Context())
 	if claims == nil || claims.Role != model.RoleRecruiter {
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+		return
+	}
+	ent, err := h.billingSvc.GetRecruiterEntitlements(r.Context(), claims.UserID, claims.Role)
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	if !ent.CanInvite {
+		billing.WriteError(w, http.StatusForbidden, "subscription_required", "invitations require Pro subscription")
 		return
 	}
 	var req CreateInvitationRequest

@@ -9,18 +9,37 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/uni-intern-organization/marketplace-backend/internal/billing"
+	"github.com/uni-intern-organization/marketplace-backend/internal/crypto"
 	"github.com/uni-intern-organization/marketplace-backend/internal/middleware"
 	"github.com/uni-intern-organization/marketplace-backend/internal/model"
 	"github.com/uni-intern-organization/marketplace-backend/internal/repository"
 )
 
 type SearchHandler struct {
-	pool     *pgxpool.Pool
-	userRepo *repository.UserRepository
+	pool          *pgxpool.Pool
+	userRepo      *repository.UserRepository
+	billingSvc    *billing.Service
+	vacancyRepo   *repository.VacancyRepository
+	freelanceRepo *repository.FreelanceRepository
+	hackathonRepo *repository.HackathonRepository
+	aesKey        []byte
 }
 
-func NewSearchHandler(pool *pgxpool.Pool, userRepo *repository.UserRepository) *SearchHandler {
-	return &SearchHandler{pool: pool, userRepo: userRepo}
+func NewSearchHandler(
+	pool *pgxpool.Pool,
+	userRepo *repository.UserRepository,
+	billingSvc *billing.Service,
+	vacancyRepo *repository.VacancyRepository,
+	freelanceRepo *repository.FreelanceRepository,
+	hackathonRepo *repository.HackathonRepository,
+	aesKey []byte,
+) *SearchHandler {
+	return &SearchHandler{
+		pool: pool, userRepo: userRepo, billingSvc: billingSvc,
+		vacancyRepo: vacancyRepo, freelanceRepo: freelanceRepo, hackathonRepo: hackathonRepo,
+		aesKey: aesKey,
+	}
 }
 
 // SearchUsers returns users by role and optional email prefix (admin only or recruiter for students).
@@ -100,6 +119,15 @@ func (h *SearchHandler) SearchStudents(w http.ResponseWriter, r *http.Request) {
 	}
 	if claims.Role != model.RoleRecruiter && claims.Role != model.RoleAdmin {
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+		return
+	}
+	ent, err := h.billingSvc.GetRecruiterEntitlements(r.Context(), claims.UserID, claims.Role)
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	if !ent.CanSearch {
+		billing.WriteError(w, http.StatusForbidden, "subscription_required", "student search requires Pro subscription")
 		return
 	}
 	profiles, err := h.userRepo.ListStudentProfilesForMatching(r.Context())
@@ -189,6 +217,15 @@ func (h *SearchHandler) GetStudentByID(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 		return
 	}
+	ent, err := h.billingSvc.GetRecruiterEntitlements(r.Context(), claims.UserID, claims.Role)
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	if !ent.CanSearch {
+		billing.WriteError(w, http.StatusForbidden, "subscription_required", "student profiles require Pro subscription")
+		return
+	}
 	idStr := r.PathValue("id")
 	if idStr == "" {
 		http.Error(w, `{"error":"id required"}`, http.StatusBadRequest)
@@ -236,4 +273,110 @@ func (h *SearchHandler) GetStudentByID(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(out)
+}
+
+type GlobalSearchItem struct {
+	Type        string `json:"type"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	Subtitle    string `json:"subtitle,omitempty"`
+}
+
+type GlobalSearchResponse struct {
+	Vacancies  []GlobalSearchItem `json:"vacancies"`
+	Freelance  []GlobalSearchItem `json:"freelance"`
+	Hackathons []GlobalSearchItem `json:"hackathons"`
+	Companies  []GlobalSearchItem `json:"companies"`
+}
+
+// GlobalSearch unified catalog search for header overlay (public).
+func (h *SearchHandler) GlobalSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	limit := 3
+	if s := r.URL.Query().Get("limit"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 10 {
+			limit = n
+		}
+	}
+	resp := GlobalSearchResponse{
+		Vacancies:  []GlobalSearchItem{},
+		Freelance:  []GlobalSearchItem{},
+		Hackathons: []GlobalSearchItem{},
+		Companies:  []GlobalSearchItem{},
+	}
+	if q == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+	if h.vacancyRepo != nil {
+		vacList, _ := h.vacancyRepo.List(r.Context(), repository.VacancyFilter{Query: q}, limit)
+		seenCompanies := map[string]bool{}
+		for _, v := range vacList {
+			vr := vacancyToResponse(&v, h.aesKey)
+			resp.Vacancies = append(resp.Vacancies, GlobalSearchItem{
+				Type: "vacancy", ID: vr.ID, Title: vr.Title,
+				Description: vr.CompanyName, Subtitle: vr.Location,
+			})
+			if v.CompanyName != "" && !seenCompanies[v.CompanyName] {
+				seenCompanies[v.CompanyName] = true
+				resp.Companies = append(resp.Companies, GlobalSearchItem{
+					Type: "company", ID: v.RecruiterID.String(), Title: v.CompanyName,
+				})
+			}
+		}
+	}
+	if h.freelanceRepo != nil {
+		tasks, _ := h.freelanceRepo.ListOpen(r.Context(), "", 50)
+		count := 0
+		for _, t := range tasks {
+			if count >= limit {
+				break
+			}
+			title := ""
+			if len(t.TitleEnc) > 0 {
+				if b, err := crypto.Decrypt(t.TitleEnc, h.aesKey); err == nil {
+					title = string(b)
+				}
+			}
+			if title == "" || !strings.Contains(strings.ToLower(title), strings.ToLower(q)) {
+				if !strings.Contains(strings.ToLower(t.Category), strings.ToLower(q)) {
+					continue
+				}
+			}
+			resp.Freelance = append(resp.Freelance, GlobalSearchItem{
+				Type: "freelance", ID: t.ID.String(), Title: title, Subtitle: t.Category,
+			})
+			count++
+		}
+	}
+	if h.hackathonRepo != nil {
+		hacks, _ := h.hackathonRepo.ListPublished(r.Context(), 50)
+		count := 0
+		for _, hc := range hacks {
+			if count >= limit {
+				break
+			}
+			title := ""
+			if len(hc.TitleEnc) > 0 {
+				if b, err := crypto.Decrypt(hc.TitleEnc, h.aesKey); err == nil {
+					title = string(b)
+				}
+			}
+			if title == "" || !strings.Contains(strings.ToLower(title+" "+hc.Theme), strings.ToLower(q)) {
+				continue
+			}
+			resp.Hackathons = append(resp.Hackathons, GlobalSearchItem{
+				Type: "hackathon", ID: hc.ID.String(), Title: title, Subtitle: hc.Theme,
+			})
+			count++
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }

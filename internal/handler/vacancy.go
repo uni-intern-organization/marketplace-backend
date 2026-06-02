@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/uni-intern-organization/marketplace-backend/internal/billing"
 	"github.com/uni-intern-organization/marketplace-backend/internal/crypto"
 	"github.com/uni-intern-organization/marketplace-backend/internal/middleware"
 	"github.com/uni-intern-organization/marketplace-backend/internal/model"
@@ -15,11 +17,12 @@ import (
 type VacancyHandler struct {
 	vacancyRepo *repository.VacancyRepository
 	userRepo    *repository.UserRepository
+	billingSvc  *billing.Service
 	aesKey      []byte
 }
 
-func NewVacancyHandler(vacancyRepo *repository.VacancyRepository, userRepo *repository.UserRepository, aesKey []byte) *VacancyHandler {
-	return &VacancyHandler{vacancyRepo: vacancyRepo, userRepo: userRepo, aesKey: aesKey}
+func NewVacancyHandler(vacancyRepo *repository.VacancyRepository, userRepo *repository.UserRepository, billingSvc *billing.Service, aesKey []byte) *VacancyHandler {
+	return &VacancyHandler{vacancyRepo: vacancyRepo, userRepo: userRepo, billingSvc: billingSvc, aesKey: aesKey}
 }
 
 type CreateVacancyRequest struct {
@@ -30,19 +33,25 @@ type CreateVacancyRequest struct {
 	Location           string `json:"location"`
 	EmploymentType     string `json:"employment_type"`
 	MinExperienceYears int    `json:"min_experience_years"`
+	ListingTier        string `json:"listing_tier"`
 }
 
 type VacancyResponse struct {
-	ID                 string `json:"id"`
-	RecruiterID        string `json:"recruiter_id"`
-	Title              string `json:"title"`
-	Description        string `json:"description"`
-	CompanyName        string `json:"company_name"`
-	RequiredSkills     string `json:"required_skills"`
-	Location           string `json:"location"`
-	EmploymentType     string `json:"employment_type"`
-	MinExperienceYears int    `json:"min_experience_years"`
-	CreatedAt          string `json:"created_at"`
+	ID                 string  `json:"id"`
+	RecruiterID        string  `json:"recruiter_id"`
+	Title              string  `json:"title"`
+	Description        string  `json:"description"`
+	CompanyName        string  `json:"company_name"`
+	RequiredSkills     string  `json:"required_skills"`
+	Location           string  `json:"location"`
+	EmploymentType     string  `json:"employment_type"`
+	MinExperienceYears int     `json:"min_experience_years"`
+	ListingTier        string  `json:"listing_tier"`
+	Status             string  `json:"status"`
+	ExpiresAt          *string `json:"expires_at,omitempty"`
+	IsFeatured         bool    `json:"is_featured"`
+	FeaturedUntil      *string `json:"featured_until,omitempty"`
+	CreatedAt          string  `json:"created_at"`
 }
 
 func vacancyToResponse(v *model.Vacancy, aesKey []byte) VacancyResponse {
@@ -54,7 +63,13 @@ func vacancyToResponse(v *model.Vacancy, aesKey []byte) VacancyResponse {
 		Location:           v.Location,
 		EmploymentType:     v.EmploymentType,
 		MinExperienceYears: v.MinExperienceYears,
+		ListingTier:        string(v.ListingTier),
+		Status:             string(v.Status),
 		CreatedAt:          v.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
+	if v.ExpiresAt != nil {
+		s := v.ExpiresAt.Format(time.RFC3339)
+		resp.ExpiresAt = &s
 	}
 	if len(v.TitleEnc) > 0 {
 		b, _ := crypto.Decrypt(v.TitleEnc, aesKey)
@@ -67,6 +82,12 @@ func vacancyToResponse(v *model.Vacancy, aesKey []byte) VacancyResponse {
 	// Вручную вставлённые в БД записи с пустым title_enc: показываем компанию, чтобы список не был «пустым»
 	if resp.Title == "" && v.CompanyName != "" {
 		resp.Title = v.CompanyName
+	}
+	now := time.Now()
+	resp.IsFeatured = billing.IsFeaturedActive(v, now)
+	if v.FeaturedUntil != nil && resp.IsFeatured {
+		s := v.FeaturedUntil.Format(time.RFC3339)
+		resp.FeaturedUntil = &s
 	}
 	return resp
 }
@@ -100,9 +121,16 @@ func (h *VacancyHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	descEnc, _ := crypto.Encrypt([]byte(req.Description), h.aesKey)
-	v, err := h.vacancyRepo.Create(r.Context(), claims.UserID, titleEnc, descEnc, req.CompanyName, req.RequiredSkills, req.Location, req.EmploymentType, req.MinExperienceYears)
+	tier := model.ListingTierBasic
+	switch req.ListingTier {
+	case "standard":
+		tier = model.ListingTierStandard
+	case "premium":
+		tier = model.ListingTierPremium
+	}
+	v, err := h.vacancyRepo.Create(r.Context(), claims.UserID, titleEnc, descEnc, req.CompanyName, req.RequiredSkills, req.Location, req.EmploymentType, req.MinExperienceYears, tier)
 	if err != nil {
-		http.Error(w, `{"error":"failed to create vacancy"}`, http.StatusInternalServerError)
+		RespondError(w, http.StatusInternalServerError, "failed to create vacancy", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -128,13 +156,28 @@ func (h *VacancyHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = middleware.GetClaims(r.Context())
 	filter := repository.VacancyFilter{
+		Query:          r.URL.Query().Get("q"),
 		Skills:         r.URL.Query().Get("skills"),
 		Location:       r.URL.Query().Get("location"),
 		EmploymentType: r.URL.Query().Get("employment_type"),
+		Tier:           r.URL.Query().Get("tier"),
+		PremiumOnly:    r.URL.Query().Get("premium") == "true",
 	}
 	if s := r.URL.Query().Get("min_experience_years"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil {
 			filter.MinExperienceYears = &n
+		}
+	}
+	if s := r.URL.Query().Get("created_after"); s != "" {
+		if t, err := time.Parse("2006-01-02", s); err == nil {
+			filter.CreatedAfter = &t
+		} else if t, err := time.Parse(time.RFC3339, s); err == nil {
+			filter.CreatedAfter = &t
+		}
+	}
+	if s := r.URL.Query().Get("offset"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+			filter.Offset = n
 		}
 	}
 	limit := 50
@@ -145,7 +188,7 @@ func (h *VacancyHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := h.vacancyRepo.List(r.Context(), filter, limit)
 	if err != nil {
-		http.Error(w, `{"error":"list failed"}`, http.StatusInternalServerError)
+		RespondError(w, http.StatusInternalServerError, "list failed", err)
 		return
 	}
 	resp := make([]VacancyResponse, 0, len(list))
@@ -176,8 +219,47 @@ func (h *VacancyHandler) Get(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"vacancy not found"}`, http.StatusNotFound)
 		return
 	}
+	claims := middleware.GetClaims(r.Context())
+	var viewerID *uuid.UUID
+	if claims != nil {
+		viewerID = &claims.UserID
+	}
+	_ = h.vacancyRepo.RecordView(r.Context(), id, viewerID)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(vacancyToResponse(v, h.aesKey))
+}
+
+func (h *VacancyHandler) Renew(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	claims := middleware.GetClaims(r.Context())
+	if claims == nil || claims.Role != model.RoleRecruiter {
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+		return
+	}
+	idStr := r.URL.Query().Get("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		http.Error(w, `{"error":"id required"}`, http.StatusBadRequest)
+		return
+	}
+	var req struct{ ListingTier string `json:"listing_tier"` }
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	tier := model.ListingTierBasic
+	switch req.ListingTier {
+	case "standard":
+		tier = model.ListingTierStandard
+	case "premium":
+		tier = model.ListingTierPremium
+	}
+	if err := h.vacancyRepo.Renew(r.Context(), id, claims.UserID, tier); err != nil {
+		http.Error(w, `{"error":"renew failed"}`, http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func (h *VacancyHandler) ListMine(w http.ResponseWriter, r *http.Request) {

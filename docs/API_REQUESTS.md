@@ -487,6 +487,85 @@ curl -X POST http://localhost:8080/api/files/logo \
 
 ---
 
+## Биллинг (mock, только recruiter)
+
+**Назначение:** демонстрация бизнес-модели для компаний. Реальные платежи не выполняются — подписка и продвижение активируются сразу.
+
+Студенты **не** используют эти эндпоинты и **не** имеют тарифных ограничений.
+
+### Коды ошибок (403)
+
+| code | Когда |
+|------|--------|
+| `subscription_required` | Поиск студентов, приглашения, matching, аналитика без Pro |
+| `plan_limit_reached` | Вторая вакансия на тарифе Free |
+
+Тело ошибки:
+```json
+{"error":"student search requires Pro subscription","code":"subscription_required"}
+```
+
+### GET `/api/billing/plans`
+
+**Роль:** recruiter, admin. **Ответ:** список тарифов `free` / `pro` и блок `promotion` (продвижение вакансии).
+
+### GET `/api/billing/me`
+
+**Роль:** recruiter, admin. **Ответ:**
+```json
+{
+  "plan": "free",
+  "plan_expires_at": null,
+  "vacancy_count": 1,
+  "max_vacancies": 1,
+  "is_pro": false,
+  "features": ["view_applications", "post_one_vacancy"]
+}
+```
+
+### POST `/api/billing/subscribe`
+
+**Роль:** recruiter. **Тело:**
+```json
+{ "plan": "pro" }
+```
+**Эффект:** `plan=pro`, `plan_expires_at = now + 30 days`, запись в `billing_events`.
+
+### POST `/api/billing/promote-vacancy`
+
+**Роль:** recruiter. **Тело:**
+```json
+{ "vacancy_id": "<uuid>" }
+```
+**Эффект:** `is_featured=true`, `featured_until = now + 7 days` для своей вакансии.
+
+### GET `/api/billing/analytics`
+
+**Роль:** recruiter (только Pro). **Ответ:** счётчики вакансий, откликов по статусам, приглашений.
+
+### GET `/api/me` (дополнение для recruiter)
+
+В ответ добавлено поле `billing`:
+```json
+{
+  "user_id": "...",
+  "email": "recruiter@company.com",
+  "role": "recruiter",
+  "profile": { "company_name": "..." },
+  "billing": {
+    "plan": "free",
+    "is_pro": false,
+    "features": ["view_applications", "post_one_vacancy"]
+  }
+}
+```
+
+### Публичный каталог вакансий
+
+`GET /api/vacancies` сортирует вакансии: сначала активно продвинутые (`is_featured` и `featured_until > now()`), затем по дате создания.
+
+---
+
 ## Сводная таблица (быстрый тест)
 
 | # | Метод | URL | Роль | Пример тела |
@@ -508,5 +587,23 @@ curl -X POST http://localhost:8080/api/files/logo \
 | 15 | GET | `/api/applications` | student, recruiter | — |
 | 16 | PATCH | `/api/applications?id=<uuid>` | recruiter | `{"status":"viewed"}` / `"accepted"` / `"rejected"` |
 | 17 | GET | `/api/search/users?role=student&email=...` | admin, recruiter | — |
+| 18 | GET | `/api/billing/plans` | recruiter, admin | — |
+| 19 | GET | `/api/billing/me` | recruiter, admin | — |
+| 20 | POST | `/api/billing/subscribe` | recruiter | `{"plan":"pro"}` |
+| 21 | POST | `/api/billing/promote-vacancy` | recruiter | `{"vacancy_id":"<uuid>"}` |
+| 22 | GET | `/api/billing/analytics` | recruiter (Pro) | — |
+| 23 | POST | `/api/billing/publish-vacancy` | recruiter | `{"vacancy_id":"<uuid>","listing_tier":"premium"}` |
+| 24 | POST | `/api/vacancies/renew?id=<uuid>` | recruiter | `{"listing_tier":"basic"}` |
+| 25 | GET | `/api/students/{id}/portfolio` | student/recruiter/admin | — |
+| 26 | GET | `/api/freelance/tasks` | public / mine | `?mine=true` |
+| 27 | POST | `/api/freelance/tasks` | recruiter | task JSON |
+| 28 | POST | `/api/freelance/proposals?task_id=` | student | `{"message":"..."}` |
+| 29 | POST | `/api/freelance/tasks/complete?task_id=` | recruiter | — |
+| 30 | GET | `/api/hackathons` | public | `?id=` / `?mine=true` |
+| 31 | POST | `/api/hackathons` | recruiter | hackathon JSON |
+| 32 | POST | `/api/hackathons/publish?id=` | recruiter | — |
+| 33 | GET | `/api/match/recommendations` | student | unified: vacancies + freelance + hackathons |
 
-Все запросы, кроме 1–3, требуют заголовок: `Authorization: Bearer <token>`.
+Все запросы, кроме 1–3, публичного `GET /api/vacancies`, `GET /api/freelance/tasks`, `GET /api/hackathons` — требуют заголовок: `Authorization: Bearer <token>`.
+
+См. также раздел «Бизнес-модель» в [docs/BUSINESS_MODEL.md](../../docs/BUSINESS_MODEL.md).

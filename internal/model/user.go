@@ -32,6 +32,7 @@ type StudentProfile struct {
 	PhoneEnc        []byte
 	BioEnc          []byte
 	ResumeObjectKey *string
+	AvatarObjectKey *string
 	Skills          string // comma-separated for matching
 	Education       string
 	ExperienceYears int
@@ -88,15 +89,23 @@ type Invitation struct {
 }
 
 type Application struct {
-	ID             uuid.UUID
-	StudentID      uuid.UUID
-	RecruiterID    uuid.UUID
-	VacancyID      *uuid.UUID
-	InvitationID   *uuid.UUID
-	CoverLetterEnc []byte
-	Status         string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                   uuid.UUID
+	StudentID            uuid.UUID
+	RecruiterID          uuid.UUID
+	VacancyID            *uuid.UUID
+	InvitationID         *uuid.UUID
+	CoverLetterEnc       []byte
+	Status               string
+	InterviewFormat      string
+	InterviewMessage     string
+	ProposedSlots        []time.Time
+	InterviewScheduledAt *time.Time
+	DecisionReason       string
+	OfferStartDate       *time.Time
+	OfferTerms           string
+	OfferDuration        string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type ListingTier string

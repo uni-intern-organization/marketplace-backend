@@ -7,22 +7,29 @@ import (
 )
 
 const (
-	AppStatusNew      = "new"
-	AppStatusViewed   = "viewed"
-	AppStatusInvited  = "invited"
-	AppStatusRejected = "rejected"
-	AppStatusAccepted = "accepted"
+	AppStatusNew                    = "new"
+	AppStatusViewed                 = "viewed"
+	AppStatusUnderReview            = "under_review"
+	AppStatusInvited                = "interview_invited"
+	AppStatusInterviewScheduled     = "interview_scheduled"
+	AppStatusAwaitingDecision       = "awaiting_decision"
+	AppStatusOfferSent              = "offer_sent"
+	AppStatusHired                  = "hired"
+	AppStatusRejected               = "rejected"
+	AppStatusRejectedAfterInterview = "rejected_after_interview"
+	AppStatusAccepted               = "accepted"
+	AppStatusCompleted              = "completed"
 )
 
 type ModerationReview struct {
-	ID           uuid.UUID
-	EntityType   string
-	EntityID     uuid.UUID
-	ModeratorID  uuid.UUID
-	Action       string
-	Reason       string
-	Comment      string
-	CreatedAt    time.Time
+	ID          uuid.UUID
+	EntityType  string
+	EntityID    uuid.UUID
+	ModeratorID uuid.UUID
+	Action      string
+	Reason      string
+	Comment     string
+	CreatedAt   time.Time
 }
 
 type AuditEntry struct {
@@ -130,7 +137,36 @@ type ProfileSectionVisibility struct {
 }
 
 type ProfileCompletion struct {
-	Percent   int      `json:"percent"`
-	Badge     string   `json:"badge,omitempty"`
-	Missing   []string `json:"missing"`
+	Percent int      `json:"percent"`
+	Badge   string   `json:"badge,omitempty"`
+	Missing []string `json:"missing"`
+}
+
+type UserComplaint struct {
+	ID         uuid.UUID
+	ReporterID uuid.UUID
+	TargetType string
+	TargetID   uuid.UUID
+	Reason     string
+	Details    string
+	Status     string
+	ReviewedBy *uuid.UUID
+	Resolution string
+	CreatedAt  time.Time
+	ResolvedAt *time.Time
+}
+
+type StaffTask struct {
+	ID          uuid.UUID
+	CreatedBy   uuid.UUID
+	AssignedTo  *uuid.UUID
+	Title       string
+	Description string
+	EntityType  string
+	EntityID    *uuid.UUID
+	Status      string
+	Resolution  string
+	ResolvedBy  *uuid.UUID
+	CreatedAt   time.Time
+	ResolvedAt  *time.Time
 }

@@ -20,13 +20,27 @@ func NewBillingRepository(pool *pgxpool.Pool) *BillingRepository {
 }
 
 func (r *BillingRepository) SetRecruiterPlan(ctx context.Context, userID uuid.UUID, plan model.RecruiterPlan, expiresAt time.Time, pubQuota, invQuota int) error {
+	return r.SetRecruiterPlanWithMeta(ctx, userID, plan, time.Now(), expiresAt, pubQuota, invQuota, "self_serve")
+}
+
+func (r *BillingRepository) SetRecruiterPlanWithMeta(
+	ctx context.Context,
+	userID uuid.UUID,
+	plan model.RecruiterPlan,
+	startedAt, expiresAt time.Time,
+	pubQuota, invQuota int,
+	activationSource string,
+) error {
+	if activationSource == "" {
+		activationSource = "self_serve"
+	}
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE recruiter_profiles
-		SET plan = $2, plan_expires_at = $3, publications_quota = $4, publications_used = 0,
-		    invitations_quota = $5, invitations_used = 0,
-		    quota_reset_at = $3, updated_at = NOW()
+		SET plan = $2, plan_started_at = $3, plan_expires_at = $4, publications_quota = $5, publications_used = 0,
+		    invitations_quota = $6, invitations_used = 0, activation_source = $7,
+		    quota_reset_at = $4, updated_at = NOW()
 		WHERE user_id = $1
-	`, userID, plan, expiresAt, pubQuota, invQuota)
+	`, userID, plan, startedAt, expiresAt, pubQuota, invQuota, activationSource)
 	if err != nil {
 		return err
 	}
@@ -34,9 +48,9 @@ func (r *BillingRepository) SetRecruiterPlan(ctx context.Context, userID uuid.UU
 		return nil
 	}
 	_, err = r.pool.Exec(ctx, `
-		INSERT INTO recruiter_profiles (user_id, plan, plan_expires_at, publications_quota, invitations_quota, quota_reset_at)
-		VALUES ($1, $2, $3, $4, $5, $3)
-	`, userID, plan, expiresAt, pubQuota, invQuota)
+		INSERT INTO recruiter_profiles (user_id, plan, plan_started_at, plan_expires_at, publications_quota, invitations_quota, activation_source, quota_reset_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $4)
+	`, userID, plan, startedAt, expiresAt, pubQuota, invQuota, activationSource)
 	return err
 }
 
@@ -94,12 +108,42 @@ func (r *BillingRepository) CreateEscrow(ctx context.Context, recruiterID uuid.U
 	return err
 }
 
-func (r *BillingRepository) ReleaseEscrow(ctx context.Context, refType string, refID uuid.UUID) error {
-	_, err := r.pool.Exec(ctx, `
+func (r *BillingRepository) ReleaseEscrow(ctx context.Context, refType string, refID uuid.UUID) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `
 		UPDATE escrow_holds SET status = 'released', released_at = NOW()
 		WHERE reference_type = $1 AND reference_id = $2 AND status = 'held'
 	`, refType, refID)
-	return err
+	return tag.RowsAffected() > 0, err
+}
+
+func (r *BillingRepository) ReleaseEscrowAndCredit(ctx context.Context, refType string, refID, userID uuid.UUID, amount float64) (bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `
+		UPDATE escrow_holds SET status = 'released', released_at = NOW()
+		WHERE reference_type = $1 AND reference_id = $2 AND status = 'held'
+	`, refType, refID)
+	if err != nil || tag.RowsAffected() == 0 {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO wallets (user_id, balance_kzt) VALUES ($1, 0)
+		ON CONFLICT (user_id) DO NOTHING
+	`, userID); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE wallets SET balance_kzt = balance_kzt + $2, updated_at = NOW() WHERE user_id = $1
+	`, userID, amount); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (r *BillingRepository) CreditWallet(ctx context.Context, userID uuid.UUID, amount float64) error {

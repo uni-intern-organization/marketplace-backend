@@ -97,6 +97,17 @@ func (r *VacancyRepository) CountActiveByRecruiter(ctx context.Context, recruite
 	return n, err
 }
 
+func (r *VacancyRepository) ArchiveActiveByRecruiter(ctx context.Context, recruiterID uuid.UUID) (int64, error) {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE vacancies SET status = 'archived', updated_at = NOW()
+		WHERE recruiter_id = $1 AND status = 'active'
+	`, recruiterID)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (r *VacancyRepository) CountByRecruiter(ctx context.Context, recruiterID uuid.UUID) (int, error) {
 	return r.CountActiveByRecruiter(ctx, recruiterID)
 }

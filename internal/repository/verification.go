@@ -74,6 +74,17 @@ func (r *VerificationRepository) List(ctx context.Context, status string, limit 
 	return list, rows.Err()
 }
 
+func (r *VerificationRepository) IsApproved(ctx context.Context, recruiterID uuid.UUID) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM recruiter_verifications
+			WHERE recruiter_id = $1 AND status = 'approved'
+		)
+	`, recruiterID).Scan(&ok)
+	return ok, err
+}
+
 func (r *VerificationRepository) Review(ctx context.Context, recruiterID, reviewerID uuid.UUID, status, comment string) error {
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE recruiter_verifications
@@ -130,27 +141,27 @@ func (r *VacancyRepository) ListFavorites(ctx context.Context, userID uuid.UUID)
 }
 
 type VacancyDraftInput struct {
-	TitleEnc             []byte
-	DescriptionEnc       []byte
-	CompanyName          string
-	RequiredSkills       string
-	Location             string
-	EmploymentType       string
-	MinExperienceYears   int
-	ListingTier          model.ListingTier
-	VacancyType          string
-	ResponsibilitiesEnc  []byte
-	RequirementsEnc      []byte
-	OffersEnc            []byte
-	SalaryType           string
-	SalaryMin            *int
-	SalaryMax            *int
-	DurationMonths       *int
-	ApplicationDeadline  *time.Time
-	ContactNameEnc       []byte
-	ContactEmail         string
-	Specialty            string
-	DesiredStartDate     *time.Time
+	TitleEnc            []byte
+	DescriptionEnc      []byte
+	CompanyName         string
+	RequiredSkills      string
+	Location            string
+	EmploymentType      string
+	MinExperienceYears  int
+	ListingTier         model.ListingTier
+	VacancyType         string
+	ResponsibilitiesEnc []byte
+	RequirementsEnc     []byte
+	OffersEnc           []byte
+	SalaryType          string
+	SalaryMin           *int
+	SalaryMax           *int
+	DurationMonths      *int
+	ApplicationDeadline *time.Time
+	ContactNameEnc      []byte
+	ContactEmail        string
+	Specialty           string
+	DesiredStartDate    *time.Time
 }
 
 func (r *VacancyRepository) SaveDraft(ctx context.Context, recruiterID uuid.UUID, draft VacancyDraftInput) (*model.Vacancy, error) {

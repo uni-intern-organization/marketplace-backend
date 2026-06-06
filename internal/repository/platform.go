@@ -136,7 +136,7 @@ func (r *NotificationRepository) GetPreferences(ctx context.Context, userID uuid
 		return nil, err
 	}
 	defer rows.Close()
-	var list []model.NotificationPreference
+	list := make([]model.NotificationPreference, 0)
 	for rows.Next() {
 		var p model.NotificationPreference
 		if err := rows.Scan(&p.UserID, &p.NotificationType, &p.ChannelInApp, &p.ChannelEmail, &p.ChannelPush); err != nil {
@@ -202,6 +202,21 @@ func (r *MessagingRepository) ListConversations(ctx context.Context, userID uuid
 		list = append(list, c)
 	}
 	return list, rows.Err()
+}
+
+func (r *MessagingRepository) GetConversationByContext(ctx context.Context, contextType string, contextID uuid.UUID) (*model.Conversation, error) {
+	var c model.Conversation
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, student_id, recruiter_id, context_type, context_id, context_title, created_at, updated_at
+		FROM conversations WHERE context_type = $1 AND context_id = $2
+		ORDER BY updated_at DESC LIMIT 1
+	`, contextType, contextID).Scan(
+		&c.ID, &c.StudentID, &c.RecruiterID, &c.ContextType, &c.ContextID, &c.ContextTitle, &c.CreatedAt, &c.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
 }
 
 func (r *MessagingRepository) GetConversation(ctx context.Context, id, userID uuid.UUID) (*model.Conversation, error) {

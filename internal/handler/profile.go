@@ -28,21 +28,24 @@ func NewProfileHandler(userRepo *repository.UserRepository, recruiterRepo *repos
 }
 
 type StudentProfileResponse struct {
-	FullName           string  `json:"full_name,omitempty"`
-	Phone              string  `json:"phone,omitempty"`
-	Bio                string  `json:"bio,omitempty"`
-	ResumeURL          *string `json:"resume_url,omitempty"`
-	Skills             string  `json:"skills,omitempty"`
-	Education          string  `json:"education,omitempty"`
-	ExperienceYears    int     `json:"experience_years,omitempty"`
-	Location           string  `json:"location,omitempty"`
-	Availability       string  `json:"availability,omitempty"`
-	AvailabilityStatus string  `json:"availability_status,omitempty"`
-	GithubURL          string  `json:"github_url,omitempty"`
-	LinkedinURL        string  `json:"linkedin_url,omitempty"`
-	BehanceURL         string  `json:"behance_url,omitempty"`
-	University         string  `json:"university,omitempty"`
-	CourseYear         int     `json:"course_year,omitempty"`
+	FullName           string   `json:"full_name,omitempty"`
+	Phone              string   `json:"phone,omitempty"`
+	Bio                string   `json:"bio,omitempty"`
+	ResumeURL          *string  `json:"resume_url,omitempty"`
+	Skills             string   `json:"skills,omitempty"`
+	Education          string   `json:"education,omitempty"`
+	ExperienceYears    int      `json:"experience_years,omitempty"`
+	Location           string   `json:"location,omitempty"`
+	Availability       string   `json:"availability,omitempty"`
+	AvailabilityStatus string   `json:"availability_status,omitempty"`
+	GithubURL          string   `json:"github_url,omitempty"`
+	LinkedinURL        string   `json:"linkedin_url,omitempty"`
+	BehanceURL         string   `json:"behance_url,omitempty"`
+	University         string   `json:"university,omitempty"`
+	CourseYear         int      `json:"course_year,omitempty"`
+	Specialty          string   `json:"specialty,omitempty"`
+	GPA                *float64 `json:"gpa,omitempty"`
+	AvatarURL          *string  `json:"avatar_url,omitempty"`
 }
 
 type RecruiterProfileResponse struct {
@@ -61,10 +64,10 @@ type RecruiterBillingInfo struct {
 
 // MeResponse — ответ GET /api/me: пользователь + профиль (если есть).
 type MeResponse struct {
-	UserID  string      `json:"user_id"`
-	Email   string      `json:"email"`
-	Role    string      `json:"role"`
-	Profile interface{} `json:"profile,omitempty"`
+	UserID  string                `json:"user_id"`
+	Email   string                `json:"email"`
+	Role    string                `json:"role"`
+	Profile interface{}           `json:"profile,omitempty"`
 	Billing *RecruiterBillingInfo `json:"billing,omitempty"`
 }
 
@@ -94,6 +97,7 @@ func fillStudentProfileResp(h *ProfileHandler, ctx context.Context, userID uuid.
 		resp.Bio = string(b)
 	}
 	resp.ResumeURL = p.ResumeObjectKey
+	resp.AvatarURL = p.AvatarObjectKey
 	resp.Skills = p.Skills
 	resp.Education = p.Education
 	resp.ExperienceYears = p.ExperienceYears
@@ -106,6 +110,8 @@ func fillStudentProfileResp(h *ProfileHandler, ctx context.Context, userID uuid.
 		resp.BehanceURL = ext.BehanceURL
 		resp.University = ext.University
 		resp.CourseYear = ext.CourseYear
+		resp.Specialty = ext.Specialty
+		resp.GPA = ext.GPA
 	}
 }
 
@@ -171,20 +177,22 @@ func (h *ProfileHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateStudentProfileRequest struct {
-	FullName           string `json:"full_name"`
-	Phone              string `json:"phone"`
-	Bio                string `json:"bio"`
-	Skills             string `json:"skills"`
-	Education          string `json:"education"`
-	ExperienceYears    int    `json:"experience_years"`
-	Location           string `json:"location"`
-	Availability       string `json:"availability"`
-	AvailabilityStatus string `json:"availability_status"`
-	GithubURL          string `json:"github_url"`
-	LinkedinURL        string `json:"linkedin_url"`
-	BehanceURL         string `json:"behance_url"`
-	University         string `json:"university"`
-	CourseYear         int    `json:"course_year"`
+	FullName           string   `json:"full_name"`
+	Phone              string   `json:"phone"`
+	Bio                string   `json:"bio"`
+	Skills             string   `json:"skills"`
+	Education          string   `json:"education"`
+	ExperienceYears    int      `json:"experience_years"`
+	Location           string   `json:"location"`
+	Availability       string   `json:"availability"`
+	AvailabilityStatus string   `json:"availability_status"`
+	GithubURL          string   `json:"github_url"`
+	LinkedinURL        string   `json:"linkedin_url"`
+	BehanceURL         string   `json:"behance_url"`
+	University         string   `json:"university"`
+	CourseYear         int      `json:"course_year"`
+	Specialty          string   `json:"specialty"`
+	GPA                *float64 `json:"gpa"`
 }
 
 func (h *ProfileHandler) UpdateStudentProfile(w http.ResponseWriter, r *http.Request) {
@@ -255,6 +263,7 @@ func (h *ProfileHandler) UpdateStudentProfile(w http.ResponseWriter, r *http.Req
 	_ = h.userRepo.UpdateStudentProfileExtended(r.Context(), claims.UserID, repository.StudentProfileExtended{
 		AvailabilityStatus: req.AvailabilityStatus, GithubURL: req.GithubURL, LinkedinURL: req.LinkedinURL,
 		BehanceURL: req.BehanceURL, University: req.University, CourseYear: req.CourseYear,
+		Specialty: req.Specialty, GPA: req.GPA,
 	})
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -367,6 +376,32 @@ func (h *ProfileHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out)
 }
 
+func (h *ProfileHandler) GetStudentPublic(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetClaims(r.Context())
+	if claims != nil && claims.Role == model.RoleRecruiter {
+		ent, err := h.billingSvc.GetRecruiterEntitlements(r.Context(), claims.UserID, claims.Role)
+		if err != nil || !ent.CanSearch {
+			billing.WriteError(w, http.StatusForbidden, "subscription_required", "student profiles require Pro subscription")
+			return
+		}
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		return
+	}
+	user, err := h.userRepo.GetByID(r.Context(), id)
+	if err != nil || user.Role != model.RoleStudent {
+		http.Error(w, `{"error":"student not found"}`, http.StatusNotFound)
+		return
+	}
+	resp := StudentProfileResponse{}
+	fillStudentProfileResp(h, r.Context(), id, &resp)
+	resp.Phone = ""
+	resp.ResumeURL = nil
+	jsonOK(w, UserByIDResponse{ID: id.String(), Role: string(model.RoleStudent), Profile: &resp})
+}
+
 func (h *ProfileHandler) GetProfileCompletion(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetClaims(r.Context())
 	if claims == nil {
@@ -384,7 +419,12 @@ func (h *ProfileHandler) GetProfileCompletion(w http.ResponseWriter, r *http.Req
 	if len(p.FullNameEnc) > 0 {
 		percent += 10
 	} else {
-		missing = append(missing, "photo_or_name")
+		missing = append(missing, "name")
+	}
+	if p.AvatarObjectKey != nil && *p.AvatarObjectKey != "" {
+		percent += 5
+	} else {
+		missing = append(missing, "photo")
 	}
 	if len(p.PhoneEnc) > 0 {
 		percent += 5
@@ -435,6 +475,11 @@ func (h *ProfileHandler) GetProfileCompletion(w http.ResponseWriter, r *http.Req
 		}
 		if ext.AvailabilityStatus != "" {
 			percent += 5
+		}
+		if ext.Specialty != "" {
+			percent += 5
+		} else {
+			missing = append(missing, "specialty")
 		}
 	}
 	if percent > 100 {

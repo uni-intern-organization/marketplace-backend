@@ -7,19 +7,19 @@ import (
 )
 
 type FreelanceTask struct {
-	ID                 uuid.UUID
-	RecruiterID        uuid.UUID
-	TitleEnc           []byte
-	DescriptionEnc     []byte
-	Category           string
-	BudgetKZT          float64
-	Deadline           time.Time
-	RequiredSkills     string
-	Status             string
-	EscrowStatus       string
-	AcceptedStudentID  *uuid.UUID
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID                uuid.UUID
+	RecruiterID       uuid.UUID
+	TitleEnc          []byte
+	DescriptionEnc    []byte
+	Category          string
+	BudgetKZT         float64
+	Deadline          time.Time
+	RequiredSkills    string
+	Status            string
+	EscrowStatus      string
+	AcceptedStudentID *uuid.UUID
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type FreelanceProposal struct {
@@ -39,6 +39,7 @@ type FreelanceSubmission struct {
 	DeliverableKey *string
 	StudentNote    string
 	RevisionCount  int
+	RevisionNote   string
 	Status         string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time

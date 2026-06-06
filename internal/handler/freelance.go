@@ -2,16 +2,20 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/uni-intern-organization/marketplace-backend/config"
 	"github.com/uni-intern-organization/marketplace-backend/internal/crypto"
 	"github.com/uni-intern-organization/marketplace-backend/internal/middleware"
 	"github.com/uni-intern-organization/marketplace-backend/internal/model"
+	"github.com/uni-intern-organization/marketplace-backend/internal/notifier"
 	"github.com/uni-intern-organization/marketplace-backend/internal/repository"
 )
 
@@ -20,24 +24,25 @@ type FreelanceHandler struct {
 	billingRepo *repository.BillingRepository
 	cfg         *config.BillingConfig
 	aesKey      []byte
+	notifier    *notifier.Service
 }
 
-func NewFreelanceHandler(repo *repository.FreelanceRepository, billingRepo *repository.BillingRepository, cfg *config.BillingConfig, aesKey []byte) *FreelanceHandler {
-	return &FreelanceHandler{repo: repo, billingRepo: billingRepo, cfg: cfg, aesKey: aesKey}
+func NewFreelanceHandler(repo *repository.FreelanceRepository, billingRepo *repository.BillingRepository, cfg *config.BillingConfig, notifier *notifier.Service, aesKey []byte) *FreelanceHandler {
+	return &FreelanceHandler{repo: repo, billingRepo: billingRepo, cfg: cfg, notifier: notifier, aesKey: aesKey}
 }
 
 type freelanceTaskResp struct {
-	ID            string  `json:"id"`
-	RecruiterID   string  `json:"recruiter_id"`
-	Title         string  `json:"title"`
-	Description   string  `json:"description"`
-	Category      string  `json:"category"`
-	BudgetKZT     float64 `json:"budget_kzt"`
-	Deadline      string  `json:"deadline"`
-	RequiredSkills string `json:"required_skills"`
-	Status        string  `json:"status"`
-	EscrowStatus  string  `json:"escrow_status"`
-	CreatedAt     string  `json:"created_at"`
+	ID             string  `json:"id"`
+	RecruiterID    string  `json:"recruiter_id"`
+	Title          string  `json:"title"`
+	Description    string  `json:"description"`
+	Category       string  `json:"category"`
+	BudgetKZT      float64 `json:"budget_kzt"`
+	Deadline       string  `json:"deadline"`
+	RequiredSkills string  `json:"required_skills"`
+	Status         string  `json:"status"`
+	EscrowStatus   string  `json:"escrow_status"`
+	CreatedAt      string  `json:"created_at"`
 }
 
 func taskToResp(t *model.FreelanceTask, key []byte) freelanceTaskResp {
@@ -100,13 +105,15 @@ func (h *FreelanceHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 
 func (h *FreelanceHandler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	category := r.URL.Query().Get("category")
+	minBudget, _ := strconv.ParseFloat(r.URL.Query().Get("min_budget"), 64)
+	maxBudget, _ := strconv.ParseFloat(r.URL.Query().Get("max_budget"), 64)
 	limit := 50
 	if s := r.URL.Query().Get("limit"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil {
 			limit = n
 		}
 	}
-	list, err := h.repo.ListOpen(r.Context(), category, limit)
+	list, err := h.repo.ListOpenFiltered(r.Context(), category, minBudget, maxBudget, limit)
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, "list failed", err)
 		return
@@ -173,11 +180,18 @@ func (h *FreelanceHandler) CreateProposal(w http.ResponseWriter, r *http.Request
 		http.Error(w, `{"error":"task_id required"}`, http.StatusBadRequest)
 		return
 	}
-	var req struct{ Message string `json:"message"` }
+	var req struct {
+		Message string `json:"message"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	msgEnc, _ := crypto.Encrypt([]byte(req.Message), h.aesKey)
 	p, err := h.repo.CreateProposal(r.Context(), taskID, claims.UserID, msgEnc)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			RespondErrorWithCode(w, http.StatusConflict, "proposal_exists", "proposal already submitted", err)
+			return
+		}
 		RespondError(w, http.StatusInternalServerError, "proposal failed", err)
 		return
 	}
@@ -196,7 +210,10 @@ func (h *FreelanceHandler) UpdateProposal(w http.ResponseWriter, r *http.Request
 		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
 		return
 	}
-	var req struct{ Status string `json:"status"` }
+	var req struct {
+		Status       string `json:"status"`
+		RevisionNote string `json:"revision_note"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid body"}`, http.StatusBadRequest)
 		return
@@ -259,7 +276,10 @@ func (h *FreelanceHandler) UpdateSubmission(w http.ResponseWriter, r *http.Reque
 		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
 		return
 	}
-	var req struct{ Status string `json:"status"` }
+	var req struct {
+		Status       string `json:"status"`
+		RevisionNote string `json:"revision_note"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	s, err := h.repo.GetSubmission(r.Context(), id)
 	if err != nil {
@@ -272,11 +292,12 @@ func (h *FreelanceHandler) UpdateSubmission(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if req.Status == "revision_requested" {
-		if err := h.repo.RequestRevision(r.Context(), id); err != nil {
+		if err := h.repo.RequestRevision(r.Context(), id, req.RevisionNote); err != nil {
 			http.Error(w, `{"error":"update failed"}`, http.StatusInternalServerError)
 			return
 		}
 		_ = h.repo.UpdateTaskStatus(r.Context(), s.TaskID, "in_progress")
+		h.notifier.Notify(r.Context(), s.StudentID, "freelance_revision", "Запрошены правки", req.RevisionNote, map[string]interface{}{"task_id": s.TaskID.String()})
 	} else {
 		if err := h.repo.UpdateSubmissionStatus(r.Context(), id, req.Status); err != nil {
 			http.Error(w, `{"error":"update failed"}`, http.StatusInternalServerError)
@@ -285,9 +306,33 @@ func (h *FreelanceHandler) UpdateSubmission(w http.ResponseWriter, r *http.Reque
 	}
 	if req.Status == "accepted" {
 		_ = h.repo.UpdateTaskStatus(r.Context(), s.TaskID, "completed")
+		h.notifier.Notify(r.Context(), s.StudentID, "freelance_accepted", "Работа принята", "Заказчик принял результат задачи", map[string]interface{}{"task_id": s.TaskID.String()})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (h *FreelanceHandler) GetSubmissionForTask(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetClaims(r.Context())
+	taskID, err := uuid.Parse(r.URL.Query().Get("task_id"))
+	if err != nil {
+		http.Error(w, `{"error":"task_id required"}`, http.StatusBadRequest)
+		return
+	}
+	task, err := h.repo.GetTask(r.Context(), taskID)
+	if err != nil || (claims.UserID != task.RecruiterID && (task.AcceptedStudentID == nil || claims.UserID != *task.AcceptedStudentID)) {
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+		return
+	}
+	s, err := h.repo.GetLatestSubmissionByTask(r.Context(), taskID)
+	if err != nil {
+		jsonOK(w, map[string]interface{}{"submission": nil})
+		return
+	}
+	jsonOK(w, map[string]interface{}{"submission": map[string]interface{}{
+		"id": s.ID.String(), "deliverable_key": s.DeliverableKey, "student_note": s.StudentNote,
+		"revision_count": s.RevisionCount, "revision_note": s.RevisionNote, "status": s.Status,
+	}})
 }
 
 func (h *FreelanceHandler) CompleteTask(w http.ResponseWriter, r *http.Request) {
@@ -312,10 +357,20 @@ func (h *FreelanceHandler) CompleteTask(w http.ResponseWriter, r *http.Request) 
 	}
 	fee := t.BudgetKZT * float64(feePct) / 100
 	payout := t.BudgetKZT - fee
-	if t.AcceptedStudentID != nil {
-		_ = h.billingRepo.CreditWallet(r.Context(), *t.AcceptedStudentID, payout)
+	if t.AcceptedStudentID == nil {
+		http.Error(w, `{"error":"task has no selected student"}`, http.StatusConflict)
+		return
 	}
-	_ = h.billingRepo.ReleaseEscrow(r.Context(), "freelance_task", taskID)
+	released, err := h.billingRepo.ReleaseEscrowAndCredit(r.Context(), "freelance_task", taskID, *t.AcceptedStudentID, payout)
+	if err != nil {
+		http.Error(w, `{"error":"failed to release escrow"}`, http.StatusInternalServerError)
+		return
+	}
+	if !released {
+		http.Error(w, `{"error":"task payment already released or escrow missing"}`, http.StatusConflict)
+		return
+	}
+	h.notifier.Notify(r.Context(), *t.AcceptedStudentID, "freelance_paid", "Оплата поступила", fmt.Sprintf("%.0f ₸ зачислено на ваш счёт", payout), map[string]interface{}{"task_id": taskID.String()})
 	_ = h.repo.UpdateTaskStatus(r.Context(), taskID, "completed")
 	_ = h.billingRepo.InsertEvent(r.Context(), claims.UserID, "freelance_fee", map[string]interface{}{
 		"task_id": taskID.String(), "fee_kzt": fee, "payout_kzt": payout, "demo": true,
@@ -335,7 +390,9 @@ func (h *FreelanceHandler) CreateDispute(w http.ResponseWriter, r *http.Request)
 		http.Error(w, `{"error":"task_id required"}`, http.StatusBadRequest)
 		return
 	}
-	var req struct{ Reason string `json:"reason"` }
+	var req struct {
+		Reason string `json:"reason"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	d, err := h.repo.CreateDispute(r.Context(), taskID, claims.UserID, req.Reason)
 	if err != nil {
@@ -358,10 +415,31 @@ func (h *FreelanceHandler) ResolveDispute(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var req struct {
+		Action       string `json:"action"`
 		Resolution   string `json:"resolution"`
 		FavorStudent bool   `json:"favor_student"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.Action == "escalate" {
+		if claims.Role != model.RoleModerator && claims.Role != model.RoleAdmin {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
+		if err := h.repo.EscalateDispute(r.Context(), id); err != nil {
+			RespondError(w, http.StatusInternalServerError, "escalate failed", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "escalated"})
+		return
+	}
+	dispute, err := h.repo.GetDispute(r.Context(), id)
+	if err != nil {
+		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		return
+	}
+	taskIDStr, _ := dispute["task_id"].(string)
+	taskID, _ := uuid.Parse(taskIDStr)
 	if err := h.repo.ResolveDispute(r.Context(), id, claims.UserID, req.Resolution, req.FavorStudent); err != nil {
 		if err == pgx.ErrNoRows {
 			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
@@ -370,8 +448,68 @@ func (h *FreelanceHandler) ResolveDispute(w http.ResponseWriter, r *http.Request
 		RespondError(w, http.StatusInternalServerError, "resolve failed", err)
 		return
 	}
+	if req.FavorStudent && h.billingRepo != nil && taskID != uuid.Nil {
+		if t, err := h.repo.GetTask(r.Context(), taskID); err == nil && t.AcceptedStudentID != nil {
+			feePct := 10
+			if h.cfg != nil && h.cfg.FreelancePlatformFeePercent > 0 {
+				feePct = h.cfg.FreelancePlatformFeePercent
+			}
+			payout := t.BudgetKZT - (t.BudgetKZT * float64(feePct) / 100)
+			if released, _ := h.billingRepo.ReleaseEscrowAndCredit(r.Context(), "freelance_task", taskID, *t.AcceptedStudentID, payout); released {
+				h.notifier.Notify(r.Context(), *t.AcceptedStudentID, "freelance_paid", "Оплата по спору",
+					fmt.Sprintf("%.0f ₸ зачислено на ваш счёт", payout), map[string]interface{}{"task_id": taskID.String(), "dispute_id": id.String()})
+			}
+			h.notifier.Notify(r.Context(), t.RecruiterID, "dispute_resolved", "Спор закрыт",
+				"Решение модератора: в пользу исполнителя. Рекомендуем детально формулировать ТЗ.", map[string]interface{}{"task_id": taskID.String()})
+		}
+	} else if taskID != uuid.Nil {
+		if t, err := h.repo.GetTask(r.Context(), taskID); err == nil {
+			recBody := "Спор закрыт. Решение не в пользу исполнителя."
+			if req.Resolution != "" {
+				recBody = req.Resolution
+			}
+			h.notifier.Notify(r.Context(), t.RecruiterID, "dispute_resolved", "Спор закрыт", recBody, map[string]interface{}{"task_id": taskID.String()})
+			if t.AcceptedStudentID != nil {
+				h.notifier.Notify(r.Context(), *t.AcceptedStudentID, "dispute_resolved", "Спор закрыт", recBody, map[string]interface{}{"task_id": taskID.String()})
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "resolved"})
+}
+
+func (h *FreelanceHandler) GetDisputeDetail(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetClaims(r.Context())
+	if claims == nil || (claims.Role != model.RoleModerator && claims.Role != model.RoleAdmin) {
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+		return
+	}
+	id, err := uuid.Parse(r.URL.Query().Get("id"))
+	if err != nil {
+		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		return
+	}
+	dispute, err := h.repo.GetDispute(r.Context(), id)
+	if err != nil {
+		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		return
+	}
+	taskIDStr, _ := dispute["task_id"].(string)
+	taskID, _ := uuid.Parse(taskIDStr)
+	out := map[string]interface{}{"dispute": dispute}
+	if taskID != uuid.Nil {
+		if t, err := h.repo.GetTask(r.Context(), taskID); err == nil {
+			out["task"] = taskToResp(t, h.aesKey)
+			if sub, err := h.repo.GetLatestSubmissionByTask(r.Context(), taskID); err == nil && sub != nil {
+				out["submission"] = map[string]interface{}{
+					"id": sub.ID.String(), "student_id": sub.StudentID.String(),
+					"deliverable_key": sub.DeliverableKey, "student_note": sub.StudentNote,
+					"status": sub.Status, "created_at": sub.CreatedAt.Format(time.RFC3339),
+				}
+			}
+		}
+	}
+	jsonOK(w, out)
 }
 
 func (h *FreelanceHandler) ListDisputes(w http.ResponseWriter, r *http.Request) {
@@ -384,6 +522,9 @@ func (h *FreelanceHandler) ListDisputes(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, "list failed", err)
 		return
+	}
+	if list == nil {
+		list = []map[string]interface{}{}
 	}
 	jsonOK(w, map[string]interface{}{"disputes": list})
 }
@@ -408,11 +549,19 @@ func (h *FreelanceHandler) ListProposals(w http.ResponseWriter, r *http.Request)
 		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 		return
 	}
+	var list []model.FreelanceProposal
 	if claims.Role == model.RoleStudent {
-		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
-		return
+		p, getErr := h.repo.GetProposalByTaskAndStudent(r.Context(), taskID, claims.UserID)
+		if getErr == nil {
+			list = []model.FreelanceProposal{*p}
+		} else if !errors.Is(getErr, pgx.ErrNoRows) {
+			RespondError(w, http.StatusInternalServerError, "list failed", getErr)
+			return
+		}
+		h.notifier.Notify(r.Context(), p.StudentID, "freelance_selected", "Вас выбрали исполнителем", "Можно приступать к работе над задачей", map[string]interface{}{"task_id": p.TaskID.String()})
+	} else {
+		list, err = h.repo.ListProposalsByTask(r.Context(), taskID)
 	}
-	list, err := h.repo.ListProposalsByTask(r.Context(), taskID)
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, "list failed", err)
 		return

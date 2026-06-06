@@ -1,0 +1,11 @@
+ALTER TABLE student_profiles
+  ADD COLUMN IF NOT EXISTS specialty VARCHAR(256) NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS gpa NUMERIC(3,2),
+  ADD COLUMN IF NOT EXISTS avatar_object_key VARCHAR(512);
+
+ALTER TABLE applications
+  ADD COLUMN IF NOT EXISTS interview_reminder_sent BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE freelance_submissions
+  ADD COLUMN IF NOT EXISTS revision_note TEXT NOT NULL DEFAULT '';
+

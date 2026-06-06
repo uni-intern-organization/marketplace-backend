@@ -31,8 +31,8 @@ func scanTask(row interface{ Scan(dest ...any) error }) (model.FreelanceTask, er
 
 func (r *FreelanceRepository) CreateTask(ctx context.Context, recruiterID uuid.UUID, titleEnc, descEnc []byte, category string, budget float64, deadline time.Time, skills string) (*model.FreelanceTask, error) {
 	row := r.pool.QueryRow(ctx, `
-		INSERT INTO freelance_tasks (recruiter_id, title_enc, description_enc, category, budget_kzt, deadline, required_skills, status, escrow_status)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,'open','held') RETURNING `+taskCols,
+		INSERT INTO freelance_tasks (recruiter_id, title_enc, description_enc, category, budget_kzt, deadline, required_skills, status, escrow_status, moderation_submitted_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,'pending_review','held',NOW()) RETURNING `+taskCols,
 		recruiterID, titleEnc, descEnc, category, budget, deadline, skills)
 	t, err := scanTask(row)
 	return &t, err
@@ -45,14 +45,26 @@ func (r *FreelanceRepository) GetTask(ctx context.Context, id uuid.UUID) (*model
 }
 
 func (r *FreelanceRepository) ListOpen(ctx context.Context, category string, limit int) ([]model.FreelanceTask, error) {
+	return r.ListOpenFiltered(ctx, category, 0, 0, limit)
+}
+
+func (r *FreelanceRepository) ListOpenFiltered(ctx context.Context, category string, minBudget, maxBudget float64, limit int) ([]model.FreelanceTask, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
 	q := `SELECT ` + taskCols + ` FROM freelance_tasks WHERE status='open'`
 	args := []any{}
 	if category != "" {
-		q += ` AND category=$1`
+		q += fmt.Sprintf(` AND category=$%d`, len(args)+1)
 		args = append(args, category)
+	}
+	if minBudget > 0 {
+		q += fmt.Sprintf(` AND budget_kzt >= $%d`, len(args)+1)
+		args = append(args, minBudget)
+	}
+	if maxBudget > 0 {
+		q += fmt.Sprintf(` AND budget_kzt <= $%d`, len(args)+1)
+		args = append(args, maxBudget)
 	}
 	q += fmt.Sprintf(` ORDER BY created_at DESC LIMIT %d`, limit)
 	rows, err := r.pool.Query(ctx, q, args...)
@@ -154,6 +166,15 @@ func (r *FreelanceRepository) GetProposal(ctx context.Context, id uuid.UUID) (*m
 	return &p, err
 }
 
+func (r *FreelanceRepository) GetProposalByTaskAndStudent(ctx context.Context, taskID, studentID uuid.UUID) (*model.FreelanceProposal, error) {
+	row := r.pool.QueryRow(ctx, `
+		SELECT id, task_id, student_id, message_enc, status, created_at, updated_at
+		FROM freelance_proposals WHERE task_id=$1 AND student_id=$2`, taskID, studentID)
+	var p model.FreelanceProposal
+	err := row.Scan(&p.ID, &p.TaskID, &p.StudentID, &p.MessageEnc, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	return &p, err
+}
+
 func (r *FreelanceRepository) UpdateProposalStatus(ctx context.Context, id uuid.UUID, status string) error {
 	tag, err := r.pool.Exec(ctx, `UPDATE freelance_proposals SET status=$2, updated_at=NOW() WHERE id=$1`, id, status)
 	if err != nil {
@@ -169,10 +190,10 @@ func (r *FreelanceRepository) CreateSubmission(ctx context.Context, taskID, stud
 	row := r.pool.QueryRow(ctx, `
 		INSERT INTO freelance_submissions (task_id, student_id, deliverable_key, student_note, status)
 		VALUES ($1,$2,$3,$4,'submitted')
-		RETURNING id, task_id, student_id, deliverable_key, student_note, revision_count, status, created_at, updated_at
+		RETURNING id, task_id, student_id, deliverable_key, student_note, revision_count, revision_note, status, created_at, updated_at
 	`, taskID, studentID, key, note)
 	var s model.FreelanceSubmission
-	err := row.Scan(&s.ID, &s.TaskID, &s.StudentID, &s.DeliverableKey, &s.StudentNote, &s.RevisionCount, &s.Status, &s.CreatedAt, &s.UpdatedAt)
+	err := row.Scan(&s.ID, &s.TaskID, &s.StudentID, &s.DeliverableKey, &s.StudentNote, &s.RevisionCount, &s.RevisionNote, &s.Status, &s.CreatedAt, &s.UpdatedAt)
 	if err == nil {
 		_, _ = r.pool.Exec(ctx, `UPDATE freelance_tasks SET status='submitted', updated_at=NOW() WHERE id=$1`, taskID)
 	}
@@ -181,10 +202,19 @@ func (r *FreelanceRepository) CreateSubmission(ctx context.Context, taskID, stud
 
 func (r *FreelanceRepository) GetSubmission(ctx context.Context, id uuid.UUID) (*model.FreelanceSubmission, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, task_id, student_id, deliverable_key, student_note, revision_count, status, created_at, updated_at
+		SELECT id, task_id, student_id, deliverable_key, student_note, revision_count, revision_note, status, created_at, updated_at
 		FROM freelance_submissions WHERE id=$1`, id)
 	var s model.FreelanceSubmission
-	err := row.Scan(&s.ID, &s.TaskID, &s.StudentID, &s.DeliverableKey, &s.StudentNote, &s.RevisionCount, &s.Status, &s.CreatedAt, &s.UpdatedAt)
+	err := row.Scan(&s.ID, &s.TaskID, &s.StudentID, &s.DeliverableKey, &s.StudentNote, &s.RevisionCount, &s.RevisionNote, &s.Status, &s.CreatedAt, &s.UpdatedAt)
+	return &s, err
+}
+
+func (r *FreelanceRepository) GetLatestSubmissionByTask(ctx context.Context, taskID uuid.UUID) (*model.FreelanceSubmission, error) {
+	row := r.pool.QueryRow(ctx, `
+		SELECT id, task_id, student_id, deliverable_key, student_note, revision_count, revision_note, status, created_at, updated_at
+		FROM freelance_submissions WHERE task_id=$1 ORDER BY created_at DESC LIMIT 1`, taskID)
+	var s model.FreelanceSubmission
+	err := row.Scan(&s.ID, &s.TaskID, &s.StudentID, &s.DeliverableKey, &s.StudentNote, &s.RevisionCount, &s.RevisionNote, &s.Status, &s.CreatedAt, &s.UpdatedAt)
 	return &s, err
 }
 
@@ -199,11 +229,11 @@ func (r *FreelanceRepository) UpdateSubmissionStatus(ctx context.Context, id uui
 	return nil
 }
 
-func (r *FreelanceRepository) RequestRevision(ctx context.Context, id uuid.UUID) error {
+func (r *FreelanceRepository) RequestRevision(ctx context.Context, id uuid.UUID, note string) error {
 	_, err := r.pool.Exec(ctx, `
-		UPDATE freelance_submissions SET status='revision_requested', revision_count = revision_count + 1, updated_at=NOW()
+		UPDATE freelance_submissions SET status='revision_requested', revision_note=$2, revision_count = revision_count + 1, updated_at=NOW()
 		WHERE id=$1
-	`, id)
+	`, id, note)
 	return err
 }
 
@@ -227,6 +257,24 @@ func (r *FreelanceRepository) ListProposalsByTask(ctx context.Context, taskID uu
 	return list, rows.Err()
 }
 
+func (r *FreelanceRepository) GetDispute(ctx context.Context, id uuid.UUID) (map[string]interface{}, error) {
+	var disputeID, taskID, openedBy uuid.UUID
+	var reason, status, resolution string
+	var createdAt time.Time
+	err := r.pool.QueryRow(ctx, `
+		SELECT d.id, d.task_id, d.opened_by, d.reason, d.status, COALESCE(d.resolution,''), d.created_at
+		FROM freelance_disputes d WHERE d.id = $1
+	`, id).Scan(&disputeID, &taskID, &openedBy, &reason, &status, &resolution, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"id": disputeID.String(), "task_id": taskID.String(), "opened_by": openedBy.String(),
+		"reason": reason, "status": status, "resolution": resolution,
+		"created_at": createdAt.Format(time.RFC3339),
+	}, nil
+}
+
 func (r *FreelanceRepository) ListDisputes(ctx context.Context, limit int) ([]map[string]interface{}, error) {
 	if limit <= 0 {
 		limit = 100
@@ -240,7 +288,7 @@ func (r *FreelanceRepository) ListDisputes(ctx context.Context, limit int) ([]ma
 		return nil, err
 	}
 	defer rows.Close()
-	var out []map[string]interface{}
+	out := make([]map[string]interface{}, 0)
 	for rows.Next() {
 		var id, taskID, openedBy, recruiterID uuid.UUID
 		var reason, status string
@@ -277,6 +325,35 @@ func (r *FreelanceRepository) CreateDispute(ctx context.Context, taskID, openedB
 		_, _ = r.pool.Exec(ctx, `UPDATE freelance_tasks SET status='disputed', updated_at=NOW() WHERE id=$1`, taskID)
 	}
 	return &d, err
+}
+
+func (r *FreelanceRepository) ListPendingReview(ctx context.Context, limit int) ([]model.FreelanceTask, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT `+taskCols+` FROM freelance_tasks WHERE status='pending_review'
+		ORDER BY COALESCE(moderation_submitted_at, created_at) ASC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []model.FreelanceTask
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, t)
+	}
+	return list, rows.Err()
+}
+
+func (r *FreelanceRepository) EscalateDispute(ctx context.Context, id uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE freelance_disputes SET status='escalated', escalated_at=NOW() WHERE id=$1 AND status='open'
+	`, id)
+	return err
 }
 
 func (r *FreelanceRepository) ResolveDispute(ctx context.Context, id uuid.UUID, adminID uuid.UUID, resolution string, favorStudent bool) error {

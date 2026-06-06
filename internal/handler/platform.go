@@ -16,23 +16,37 @@ import (
 )
 
 type ModerationHandler struct {
-	modRepo     *repository.ModerationRepository
-	vacancyRepo *repository.VacancyRepository
-	hackRepo    *repository.HackathonRepository
-	auditRepo   *repository.AuditRepository
-	notifier    *notifier.Service
-	aesKey      []byte
+	modRepo          *repository.ModerationRepository
+	vacancyRepo      *repository.VacancyRepository
+	hackRepo         *repository.HackathonRepository
+	freelanceRepo    *repository.FreelanceRepository
+	verificationRepo *repository.VerificationRepository
+	userRepo         *repository.UserRepository
+	staffRepo        *repository.StaffRepository
+	authSecRepo      *repository.AuthSecurityRepository
+	auditRepo        *repository.AuditRepository
+	notifier         *notifier.Service
+	aesKey           []byte
 }
 
 func NewModerationHandler(
 	modRepo *repository.ModerationRepository,
 	vacancyRepo *repository.VacancyRepository,
 	hackRepo *repository.HackathonRepository,
+	freelanceRepo *repository.FreelanceRepository,
+	verificationRepo *repository.VerificationRepository,
+	userRepo *repository.UserRepository,
+	staffRepo *repository.StaffRepository,
+	authSecRepo *repository.AuthSecurityRepository,
 	auditRepo *repository.AuditRepository,
 	notifier *notifier.Service,
 	aesKey []byte,
 ) *ModerationHandler {
-	return &ModerationHandler{modRepo: modRepo, vacancyRepo: vacancyRepo, hackRepo: hackRepo, auditRepo: auditRepo, notifier: notifier, aesKey: aesKey}
+	return &ModerationHandler{
+		modRepo: modRepo, vacancyRepo: vacancyRepo, hackRepo: hackRepo, freelanceRepo: freelanceRepo,
+		verificationRepo: verificationRepo, userRepo: userRepo, staffRepo: staffRepo,
+		authSecRepo: authSecRepo, auditRepo: auditRepo, notifier: notifier, aesKey: aesKey,
+	}
 }
 
 func (h *ModerationHandler) Queue(w http.ResponseWriter, r *http.Request) {
@@ -45,9 +59,34 @@ func (h *ModerationHandler) Queue(w http.ResponseWriter, r *http.Request) {
 		}
 		out := make([]map[string]string, 0, len(ids))
 		for _, id := range ids {
-			out = append(out, map[string]string{"id": id.String(), "type": "hackathon"})
+			item := map[string]string{"id": id.String(), "type": "hackathon"}
+			if hack, err := h.hackRepo.Get(r.Context(), id); err == nil {
+				item["status"] = hack.Status
+				if len(hack.TitleEnc) > 0 {
+					if b, err := crypto.Decrypt(hack.TitleEnc, h.aesKey); err == nil {
+						item["title"] = string(b)
+					}
+				}
+				if hack.Theme != "" {
+					item["description"] = hack.Theme
+				}
+			}
+			out = append(out, item)
 		}
 		jsonOK(w, map[string]interface{}{"items": out})
+		return
+	}
+	if entity == "freelance" {
+		list, err := h.freelanceRepo.ListPendingReview(r.Context(), 50)
+		if err != nil {
+			http.Error(w, `{"error":"failed"}`, http.StatusInternalServerError)
+			return
+		}
+		items := make([]freelanceTaskResp, 0, len(list))
+		for i := range list {
+			items = append(items, taskToResp(&list[i], h.aesKey))
+		}
+		jsonOK(w, map[string]interface{}{"items": items})
 		return
 	}
 	list, err := h.modRepo.ListPendingVacancies(r.Context(), 50)
@@ -55,9 +94,31 @@ func (h *ModerationHandler) Queue(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"failed"}`, http.StatusInternalServerError)
 		return
 	}
-	items := make([]VacancyResponse, 0, len(list))
+	queueKind := r.URL.Query().Get("type")
+	items := make([]map[string]interface{}, 0, len(list))
 	for i := range list {
-		items = append(items, vacancyToResponse(&list[i], h.aesKey))
+		v := list[i]
+		if queueKind == "internships" && !strings.Contains(strings.ToLower(v.EmploymentType), "intern") {
+			continue
+		}
+		if queueKind != "internships" && strings.Contains(strings.ToLower(v.EmploymentType), "intern") {
+			continue
+		}
+		resp := vacancyToResponse(&v, h.aesKey)
+		item := map[string]interface{}{
+			"id": resp.ID, "recruiter_id": resp.RecruiterID, "title": resp.Title,
+			"description": resp.Description, "company_name": resp.CompanyName,
+			"required_skills": resp.RequiredSkills, "location": resp.Location,
+			"employment_type": resp.EmploymentType, "min_experience_years": resp.MinExperienceYears,
+			"listing_tier": resp.ListingTier, "status": resp.Status, "created_at": resp.CreatedAt,
+			"company_verified": false,
+		}
+		if h.verificationRepo != nil {
+			if ok, _ := h.verificationRepo.IsApproved(r.Context(), v.RecruiterID); ok {
+				item["company_verified"] = true
+			}
+		}
+		items = append(items, item)
 	}
 	jsonOK(w, map[string]interface{}{"items": items})
 }
@@ -73,6 +134,7 @@ func (h *ModerationHandler) ReviewVacancy(w http.ResponseWriter, r *http.Request
 		Action  string `json:"action"`
 		Reason  string `json:"reason"`
 		Comment string `json:"comment"`
+		Fraud   bool   `json:"fraud"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid body"}`, http.StatusBadRequest)
@@ -83,6 +145,14 @@ func (h *ModerationHandler) ReviewVacancy(w http.ResponseWriter, r *http.Request
 		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 		return
 	}
+	notifyBody := req.Comment
+	if req.Reason != "" {
+		if notifyBody != "" {
+			notifyBody = req.Reason + ": " + notifyBody
+		} else {
+			notifyBody = req.Reason
+		}
+	}
 	switch req.Action {
 	case "approve":
 		if err := h.modRepo.SetVacancyStatus(r.Context(), id, model.VacancyStatusActive, true); err != nil {
@@ -92,17 +162,36 @@ func (h *ModerationHandler) ReviewVacancy(w http.ResponseWriter, r *http.Request
 		h.notifier.Notify(r.Context(), v.RecruiterID, "vacancy_approved", "Объявление одобрено", "Ваше объявление опубликовано", map[string]interface{}{"vacancy_id": id.String()})
 	case "reject":
 		_ = h.modRepo.SetVacancyStatus(r.Context(), id, model.VacancyStatusRejected, false)
-		h.notifier.Notify(r.Context(), v.RecruiterID, "vacancy_rejected", "Объявление отклонено", req.Comment, map[string]interface{}{"vacancy_id": id.String()})
+		if notifyBody == "" {
+			notifyBody = "Объявление не соответствует правилам платформы. Исправьте нарушения и подайте заново."
+		}
+		h.notifier.Notify(r.Context(), v.RecruiterID, "vacancy_rejected", "Объявление отклонено", notifyBody, map[string]interface{}{"vacancy_id": id.String(), "reason": req.Reason})
+		if req.Fraud && h.userRepo != nil {
+			_ = h.userRepo.SetBlocked(r.Context(), v.RecruiterID, true)
+			_ = h.userRepo.InsertUserBlock(r.Context(), v.RecruiterID, claims.UserID, "moderation_fraud:"+req.Reason)
+			if h.authSecRepo != nil {
+				_ = h.authSecRepo.RevokeAllUserTokens(r.Context(), v.RecruiterID)
+			}
+			if h.staffRepo != nil {
+				entityID := id
+				_, _ = h.staffRepo.CreateStaffTask(r.Context(), claims.UserID,
+					"Подозрение на мошенничество: работодатель заблокирован",
+					notifyBody, "vacancy", &entityID)
+			}
+		}
 	case "needs_revision":
 		_ = h.modRepo.SetVacancyStatus(r.Context(), id, model.VacancyStatusNeedsRevision, false)
-		h.notifier.Notify(r.Context(), v.RecruiterID, "vacancy_revision", "Требуется доработка", req.Comment, map[string]interface{}{"vacancy_id": id.String()})
+		if notifyBody == "" {
+			notifyBody = "Исправьте замечания модератора и подайте объявление заново."
+		}
+		h.notifier.Notify(r.Context(), v.RecruiterID, "vacancy_revision", "Требуется доработка", notifyBody, map[string]interface{}{"vacancy_id": id.String()})
 	default:
 		http.Error(w, `{"error":"unknown action"}`, http.StatusBadRequest)
 		return
 	}
 	_ = h.modRepo.CreateReview(r.Context(), "vacancy", id, claims.UserID, req.Action, req.Reason, req.Comment)
 	actor := claims.UserID
-	_ = h.auditRepo.Log(r.Context(), &actor, "moderate_vacancy", "vacancy", &id, map[string]interface{}{"action": req.Action})
+	_ = h.auditRepo.Log(r.Context(), &actor, "moderate_vacancy", "vacancy", &id, map[string]interface{}{"action": req.Action, "fraud": req.Fraud, "reason": req.Reason})
 	jsonOK(w, map[string]string{"status": "ok"})
 }
 
@@ -142,6 +231,47 @@ func (h *ModerationHandler) ReviewHackathon(w http.ResponseWriter, r *http.Reque
 	_ = h.modRepo.CreateReview(r.Context(), "hackathon", id, claims.UserID, req.Action, req.Reason, req.Comment)
 	actor := claims.UserID
 	_ = h.auditRepo.Log(r.Context(), &actor, "moderate_hackathon", "hackathon", &id, map[string]interface{}{"action": req.Action})
+	jsonOK(w, map[string]string{"status": "ok"})
+}
+
+func (h *ModerationHandler) ReviewFreelance(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetClaims(r.Context())
+	id, err := uuid.Parse(r.URL.Query().Get("id"))
+	if err != nil {
+		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Action  string `json:"action"`
+		Reason  string `json:"reason"`
+		Comment string `json:"comment"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid body"}`, http.StatusBadRequest)
+		return
+	}
+	t, err := h.freelanceRepo.GetTask(r.Context(), id)
+	if err != nil {
+		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		return
+	}
+	switch req.Action {
+	case "approve":
+		_ = h.freelanceRepo.UpdateTaskStatus(r.Context(), id, "open")
+		h.notifier.Notify(r.Context(), t.RecruiterID, "freelance_approved", "Задача опубликована", "Фриланс-задача прошла модерацию", map[string]interface{}{"task_id": id.String()})
+	case "reject":
+		_ = h.freelanceRepo.UpdateTaskStatus(r.Context(), id, "rejected")
+		h.notifier.Notify(r.Context(), t.RecruiterID, "freelance_rejected", "Задача отклонена", req.Comment, map[string]interface{}{"task_id": id.String()})
+	case "needs_revision":
+		_ = h.freelanceRepo.UpdateTaskStatus(r.Context(), id, "needs_revision")
+		h.notifier.Notify(r.Context(), t.RecruiterID, "freelance_revision", "Требуется доработка", req.Comment, map[string]interface{}{"task_id": id.String()})
+	default:
+		http.Error(w, `{"error":"unknown action"}`, http.StatusBadRequest)
+		return
+	}
+	_ = h.modRepo.CreateReview(r.Context(), "freelance_task", id, claims.UserID, req.Action, req.Reason, req.Comment)
+	actor := claims.UserID
+	_ = h.auditRepo.Log(r.Context(), &actor, "moderate_freelance", "freelance_task", &id, map[string]interface{}{"action": req.Action})
 	jsonOK(w, map[string]string{"status": "ok"})
 }
 
@@ -228,12 +358,12 @@ func (h *MessagingHandler) ListMessages(w http.ResponseWriter, r *http.Request) 
 	}
 	_ = h.repo.MarkMessagesRead(r.Context(), convID, claims.UserID)
 	type msgResp struct {
-		ID        string  `json:"id"`
-		SenderID  string  `json:"sender_id"`
-		Body      string  `json:"body"`
+		ID         string  `json:"id"`
+		SenderID   string  `json:"sender_id"`
+		Body       string  `json:"body"`
 		Attachment *string `json:"attachment_key,omitempty"`
-		ReadAt    *string `json:"read_at,omitempty"`
-		CreatedAt string  `json:"created_at"`
+		ReadAt     *string `json:"read_at,omitempty"`
+		CreatedAt  string  `json:"created_at"`
 	}
 	out := make([]msgResp, 0, len(msgs))
 	for _, m := range msgs {

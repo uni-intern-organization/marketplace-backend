@@ -79,6 +79,17 @@ func (s *S3Storage) GetPresignedURL(ctx context.Context, key string) (string, er
 	return req.URL, nil
 }
 
+func (s *S3Storage) Get(ctx context.Context, key string) (io.ReadCloser, string, error) {
+	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return result.Body, aws.ToString(result.ContentType), nil
+}
+
 func (s *S3Storage) Delete(ctx context.Context, key string) error {
 	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(s.bucket),

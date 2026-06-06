@@ -12,9 +12,9 @@ func (r *UserRepository) CreateStudentProfile(ctx context.Context, userID uuid.U
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO student_profiles (user_id, full_name_enc, phone_enc, bio_enc, skills, education, experience_years, location, availability)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, user_id, full_name_enc, phone_enc, bio_enc, resume_object_key, skills, education, experience_years, location, availability, created_at, updated_at
+		RETURNING id, user_id, full_name_enc, phone_enc, bio_enc, resume_object_key, avatar_object_key, skills, education, experience_years, location, availability, created_at, updated_at
 	`, userID, fullNameEnc, phoneEnc, bioEnc, skills, education, experienceYears, location, availability).Scan(
-		&p.ID, &p.UserID, &p.FullNameEnc, &p.PhoneEnc, &p.BioEnc, &p.ResumeObjectKey, &p.Skills, &p.Education, &p.ExperienceYears, &p.Location, &p.Availability, &p.CreatedAt, &p.UpdatedAt,
+		&p.ID, &p.UserID, &p.FullNameEnc, &p.PhoneEnc, &p.BioEnc, &p.ResumeObjectKey, &p.AvatarObjectKey, &p.Skills, &p.Education, &p.ExperienceYears, &p.Location, &p.Availability, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -25,9 +25,9 @@ func (r *UserRepository) CreateStudentProfile(ctx context.Context, userID uuid.U
 func (r *UserRepository) GetStudentProfileByUserID(ctx context.Context, userID uuid.UUID) (*model.StudentProfile, error) {
 	var p model.StudentProfile
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, user_id, full_name_enc, phone_enc, bio_enc, resume_object_key, COALESCE(skills,''), COALESCE(education,''), COALESCE(experience_years,0), COALESCE(location,''), COALESCE(availability,''), created_at, updated_at
+		SELECT id, user_id, full_name_enc, phone_enc, bio_enc, resume_object_key, avatar_object_key, COALESCE(skills,''), COALESCE(education,''), COALESCE(experience_years,0), COALESCE(location,''), COALESCE(availability,''), created_at, updated_at
 		FROM student_profiles WHERE user_id = $1
-	`, userID).Scan(&p.ID, &p.UserID, &p.FullNameEnc, &p.PhoneEnc, &p.BioEnc, &p.ResumeObjectKey, &p.Skills, &p.Education, &p.ExperienceYears, &p.Location, &p.Availability, &p.CreatedAt, &p.UpdatedAt)
+	`, userID).Scan(&p.ID, &p.UserID, &p.FullNameEnc, &p.PhoneEnc, &p.BioEnc, &p.ResumeObjectKey, &p.AvatarObjectKey, &p.Skills, &p.Education, &p.ExperienceYears, &p.Location, &p.Availability, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +56,11 @@ func (r *UserRepository) SetStudentResumeKey(ctx context.Context, userID uuid.UU
 	_, err := r.pool.Exec(ctx, `
 		UPDATE student_profiles SET resume_object_key = $2, updated_at = NOW() WHERE user_id = $1
 	`, userID, objectKey)
+	return err
+}
+
+func (r *UserRepository) SetStudentAvatarKey(ctx context.Context, userID uuid.UUID, objectKey string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE student_profiles SET avatar_object_key=$2, updated_at=NOW() WHERE user_id=$1`, userID, objectKey)
 	return err
 }
 
@@ -96,15 +101,17 @@ type StudentProfileExtended struct {
 	BehanceURL         string
 	University         string
 	CourseYear         int
+	Specialty          string
+	GPA                *float64
 }
 
 func (r *UserRepository) GetStudentProfileExtended(ctx context.Context, userID uuid.UUID) (*StudentProfileExtended, error) {
 	var e StudentProfileExtended
 	err := r.pool.QueryRow(ctx, `
 		SELECT COALESCE(availability_status,'open_both'), COALESCE(github_url,''), COALESCE(linkedin_url,''),
-		       COALESCE(behance_url,''), COALESCE(university,''), COALESCE(course_year,0)
+		       COALESCE(behance_url,''), COALESCE(university,''), COALESCE(course_year,0), COALESCE(specialty,''), gpa
 		FROM student_profiles WHERE user_id = $1
-	`, userID).Scan(&e.AvailabilityStatus, &e.GithubURL, &e.LinkedinURL, &e.BehanceURL, &e.University, &e.CourseYear)
+	`, userID).Scan(&e.AvailabilityStatus, &e.GithubURL, &e.LinkedinURL, &e.BehanceURL, &e.University, &e.CourseYear, &e.Specialty, &e.GPA)
 	if err != nil {
 		return nil, err
 	}
@@ -120,9 +127,11 @@ func (r *UserRepository) UpdateStudentProfileExtended(ctx context.Context, userI
 			behance_url = COALESCE(NULLIF($5,''), behance_url),
 			university = COALESCE(NULLIF($6,''), university),
 			course_year = CASE WHEN $7 > 0 THEN $7 ELSE course_year END,
+			specialty = COALESCE(NULLIF($8,''), specialty),
+			gpa = COALESCE($9, gpa),
 			updated_at = NOW()
 		WHERE user_id = $1
-	`, userID, e.AvailabilityStatus, e.GithubURL, e.LinkedinURL, e.BehanceURL, e.University, e.CourseYear)
+	`, userID, e.AvailabilityStatus, e.GithubURL, e.LinkedinURL, e.BehanceURL, e.University, e.CourseYear, e.Specialty, e.GPA)
 	return err
 }
 

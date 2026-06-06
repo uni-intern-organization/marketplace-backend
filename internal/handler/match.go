@@ -169,7 +169,10 @@ func (h *MatchHandler) CandidatesForVacancy(w http.ResponseWriter, r *http.Reque
 
 type VacancyWithScore struct {
 	VacancyResponse
-	MatchScore int `json:"match_score"`
+	MatchScore       int      `json:"match_score"`
+	MatchedSkills    []string `json:"matched_skills"`
+	MissingSkills    []string `json:"missing_skills"`
+	MatchExplanation string   `json:"match_explanation"`
 }
 
 type FreelanceWithScore struct {
@@ -217,7 +220,15 @@ func (h *MatchHandler) RecommendationsForStudent(w http.ResponseWriter, r *http.
 	sort.Slice(scoredVac, func(i, j int) bool { return scoredVac[i].score > scoredVac[j].score })
 	vacResp := make([]VacancyWithScore, 0, len(scoredVac))
 	for _, s := range scoredVac {
-		vacResp = append(vacResp, VacancyWithScore{VacancyResponse: vacancyToResponse(&s.v, h.aesKey), MatchScore: s.score})
+		matched, missing := skillMatchDetails(s.v.RequiredSkills, skills)
+		explanation := "Совпадение рассчитано по навыкам, локации, формату работы и опыту"
+		if len(missing) == 0 && len(matched) > 0 {
+			explanation = "Ваш профиль содержит все ключевые навыки вакансии"
+		}
+		vacResp = append(vacResp, VacancyWithScore{
+			VacancyResponse: vacancyToResponse(&s.v, h.aesKey), MatchScore: s.score,
+			MatchedSkills: matched, MissingSkills: missing, MatchExplanation: explanation,
+		})
 	}
 
 	freelanceResp := []FreelanceWithScore{}
@@ -269,4 +280,21 @@ func (h *MatchHandler) RecommendationsForStudent(w http.ResponseWriter, r *http.
 		"freelance_tasks": freelanceResp,
 		"hackathons":      hackResp,
 	})
+}
+
+func skillMatchDetails(requiredSkills, studentSkills string) ([]string, []string) {
+	studentSet := make(map[string]bool)
+	for _, skill := range splitTrimLower(studentSkills) {
+		studentSet[skill] = true
+	}
+	matched := []string{}
+	missing := []string{}
+	for _, skill := range splitTrimLower(requiredSkills) {
+		if studentSet[skill] {
+			matched = append(matched, skill)
+		} else {
+			missing = append(missing, skill)
+		}
+	}
+	return matched, missing
 }

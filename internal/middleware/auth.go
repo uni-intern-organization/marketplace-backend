@@ -38,14 +38,36 @@ func Auth(jwtSecret string) func(next http.Handler) http.Handler {
 				http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
 				return
 			}
-			ctx := context.WithValue(r.Context(), ContextKeyClaims, &ClaimsContext{
-				UserID: claims.UserID,
-				Email:  claims.Email,
-				Role:   claims.Role,
-			})
+			ctx := contextWithClaims(r.Context(), claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// OptionalAuth attaches JWT claims when a valid Bearer token is present; otherwise the request continues anonymously.
+func OptionalAuth(jwtSecret string) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			header := r.Header.Get("Authorization")
+			if header != "" {
+				parts := strings.SplitN(header, " ", 2)
+				if len(parts) == 2 && parts[0] == "Bearer" {
+					if claims, err := auth.ParseToken(parts[1], jwtSecret); err == nil {
+						r = r.WithContext(contextWithClaims(r.Context(), claims))
+					}
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func contextWithClaims(ctx context.Context, claims *auth.Claims) context.Context {
+	return context.WithValue(ctx, ContextKeyClaims, &ClaimsContext{
+		UserID: claims.UserID,
+		Email:  claims.Email,
+		Role:   claims.Role,
+	})
 }
 
 func GetClaims(ctx context.Context) *ClaimsContext {

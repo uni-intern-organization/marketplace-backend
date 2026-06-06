@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,7 +12,10 @@ import (
 	"github.com/uni-intern-organization/marketplace-backend/internal/crypto"
 	"github.com/uni-intern-organization/marketplace-backend/internal/middleware"
 	"github.com/uni-intern-organization/marketplace-backend/internal/model"
+	"github.com/uni-intern-organization/marketplace-backend/internal/notifier"
 	"github.com/uni-intern-organization/marketplace-backend/internal/repository"
+	hacksvc "github.com/uni-intern-organization/marketplace-backend/internal/service/hackathon"
+	"github.com/uni-intern-organization/marketplace-backend/internal/storage"
 )
 
 type HackathonHandler struct {
@@ -19,10 +23,17 @@ type HackathonHandler struct {
 	billingRepo *repository.BillingRepository
 	cfg         *config.BillingConfig
 	aesKey      []byte
+	svc         *hacksvc.Service
+	storage     *storage.S3Storage
+	notifier    *notifier.Service
 }
 
-func NewHackathonHandler(repo *repository.HackathonRepository, billingRepo *repository.BillingRepository, cfg *config.BillingConfig, aesKey []byte) *HackathonHandler {
-	return &HackathonHandler{repo: repo, billingRepo: billingRepo, cfg: cfg, aesKey: aesKey}
+func NewHackathonHandler(repo *repository.HackathonRepository, billingRepo *repository.BillingRepository, cfg *config.BillingConfig, notifier *notifier.Service, aesKey []byte) *HackathonHandler {
+	return &HackathonHandler{repo: repo, billingRepo: billingRepo, cfg: cfg, notifier: notifier, aesKey: aesKey}
+}
+
+func (h *HackathonHandler) SetStorage(s *storage.S3Storage) {
+	h.storage = s
 }
 
 type hackathonResp struct {
@@ -41,6 +52,7 @@ type hackathonResp struct {
 	ListingFeePaid       bool    `json:"listing_fee_paid"`
 	Status               string  `json:"status"`
 	RegistrationCount    int     `json:"registration_count,omitempty"`
+	Registered           bool    `json:"registered,omitempty"`
 }
 
 func hackToResp(h *model.Hackathon, key []byte, regCount int) hackathonResp {
@@ -49,7 +61,7 @@ func hackToResp(h *model.Hackathon, key []byte, regCount int) hackathonResp {
 		PrizePoolKZT: h.PrizePoolKZT, MinParticipants: h.MinParticipants, MaxParticipants: h.MaxParticipants,
 		StartsAt: h.StartsAt.Format(time.RFC3339), EndsAt: h.EndsAt.Format(time.RFC3339),
 		RegistrationDeadline: h.RegistrationDeadline.Format(time.RFC3339),
-		ListingFeePaid: h.ListingFeePaid, Status: h.Status, RegistrationCount: regCount,
+		ListingFeePaid:       h.ListingFeePaid, Status: h.Status, RegistrationCount: regCount,
 	}
 	if len(h.TitleEnc) > 0 {
 		b, _ := crypto.Decrypt(h.TitleEnc, key)
@@ -176,8 +188,14 @@ func (h *HackathonHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, _ := h.repo.RegistrationCount(r.Context(), id)
+	resp := hackToResp(hc, h.aesKey, n)
+	if claims := middleware.GetClaims(r.Context()); claims != nil && claims.Role == model.RoleStudent {
+		if _, err := h.repo.GetRegistration(r.Context(), id, claims.UserID); err == nil {
+			resp.Registered = true
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(hackToResp(hc, h.aesKey, n))
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (h *HackathonHandler) Publish(w http.ResponseWriter, r *http.Request) {
@@ -236,6 +254,11 @@ func (h *HackathonHandler) Register(w http.ResponseWriter, r *http.Request) {
 		err = h.repo.Register(r.Context(), id, claims.UserID, nil)
 	}
 	if err != nil {
+		if errors.Is(err, repository.ErrHackathonAlreadyRegistered) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"status": "already_registered"})
+			return
+		}
 		RespondError(w, http.StatusInternalServerError, "register failed", err)
 		return
 	}
@@ -254,7 +277,9 @@ func (h *HackathonHandler) CreateTeam(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"invalid id"}`, http.StatusBadRequest)
 		return
 	}
-	var req struct{ Name string `json:"name"` }
+	var req struct {
+		Name string `json:"name"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	if req.Name == "" {
 		req.Name = "Team"
@@ -368,9 +393,9 @@ func (h *HackathonHandler) Leaderboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type row struct {
-		Place          int     `json:"place"`
-		PrizeAmountKZT float64 `json:"prize_amount_kzt"`
-		InternshipOffer bool   `json:"internship_offer"`
+		Place           int     `json:"place"`
+		PrizeAmountKZT  float64 `json:"prize_amount_kzt"`
+		InternshipOffer bool    `json:"internship_offer"`
 	}
 	resp := make([]row, 0, len(list))
 	for _, res := range list {

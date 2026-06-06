@@ -4,14 +4,18 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/uni-intern-organization/marketplace-backend/internal/model"
 )
+
+var ErrHackathonAlreadyRegistered = errors.New("hackathon already registered")
 
 type HackathonRepository struct {
 	pool *pgxpool.Pool
@@ -103,10 +107,22 @@ func (r *HackathonRepository) Publish(ctx context.Context, id, organizerID uuid.
 }
 
 func (r *HackathonRepository) Register(ctx context.Context, hackathonID, studentID uuid.UUID, teamID *uuid.UUID) error {
+	if _, err := r.GetRegistration(ctx, hackathonID, studentID); err == nil {
+		return ErrHackathonAlreadyRegistered
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO hackathon_registrations (hackathon_id, student_id, team_id) VALUES ($1,$2,$3)
 	`, hackathonID, studentID, teamID)
-	return err
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return ErrHackathonAlreadyRegistered
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *HackathonRepository) CreateTeam(ctx context.Context, hackathonID, captainID uuid.UUID, name string) (*model.HackathonTeam, error) {
@@ -391,29 +407,4 @@ func (r *HackathonRepository) UpdateTeamRequest(ctx context.Context, requestID, 
 		_ = r.Register(ctx, hackID, studentID, &teamID)
 	}
 	return nil
-}
-
-func (r *HackathonRepository) ListCertificatesForStudent(ctx context.Context, studentID uuid.UUID) ([]map[string]interface{}, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT c.hackathon_id, c.certificate_url, h.theme
-		FROM hackathon_certificates c
-		JOIN hackathons h ON h.id = c.hackathon_id
-		WHERE c.student_id=$1
-	`, studentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []map[string]interface{}
-	for rows.Next() {
-		var hackID uuid.UUID
-		var url, theme string
-		if err := rows.Scan(&hackID, &url, &theme); err != nil {
-			return nil, err
-		}
-		out = append(out, map[string]interface{}{
-			"hackathon_id": hackID.String(), "certificate_url": url, "theme": theme,
-		})
-	}
-	return out, rows.Err()
 }

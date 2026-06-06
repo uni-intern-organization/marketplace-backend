@@ -70,6 +70,19 @@ func (r *PaymentRepository) GetSession(ctx context.Context, idStr string) (*Paym
 	return r.getSessionByID(ctx, id)
 }
 
+func (r *PaymentRepository) GetSessionByID(ctx context.Context, id uuid.UUID) (*PaymentSession, error) {
+	return r.getSessionByID(ctx, id)
+}
+
+func (r *PaymentRepository) UpdateSessionMetadata(ctx context.Context, id uuid.UUID, metadata map[string]interface{}) error {
+	meta, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	_, err = r.pool.Exec(ctx, `UPDATE payment_sessions SET metadata = $2 WHERE id = $1`, id, meta)
+	return err
+}
+
 func (r *PaymentRepository) getSessionByID(ctx context.Context, id uuid.UUID) (*PaymentSession, error) {
 	var s PaymentSession
 	err := r.pool.QueryRow(ctx, `
@@ -105,6 +118,40 @@ func (r *PaymentRepository) CompleteSession(ctx context.Context, id uuid.UUID) e
 		return pgx.ErrNoRows
 	}
 	return nil
+}
+
+func (r *PaymentRepository) FailSession(ctx context.Context, id uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE payment_sessions SET status = 'failed', completed_at = NOW() WHERE id = $1 AND status = 'pending'
+	`, id)
+	return err
+}
+
+func (r *PaymentRepository) CreateCompletedSession(
+	ctx context.Context,
+	recruiterID uuid.UUID,
+	provider string,
+	amount int,
+	purpose string,
+	metadata map[string]interface{},
+) (*PaymentSession, error) {
+	var meta []byte
+	if metadata != nil {
+		var err error
+		meta, err = json.Marshal(metadata)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var s PaymentSession
+	err := r.pool.QueryRow(ctx, `
+		INSERT INTO payment_sessions (recruiter_id, provider, amount_kzt, purpose, metadata, status, completed_at)
+		VALUES ($1, $2, $3, $4, $5, 'completed', NOW())
+		RETURNING id, recruiter_id, provider, external_id, amount_kzt, COALESCE(currency,'KZT'), purpose, metadata, status, created_at, completed_at
+	`, recruiterID, provider, amount, purpose, meta).Scan(
+		&s.ID, &s.RecruiterID, &s.Provider, &s.ExternalID, &s.AmountKZT, &s.Currency, &s.Purpose, &s.Metadata, &s.Status, &s.CreatedAt, &s.CompletedAt,
+	)
+	return &s, err
 }
 
 func (r *PaymentRepository) ListMethods(ctx context.Context, recruiterID uuid.UUID) ([]PaymentMethod, error) {
@@ -174,27 +221,55 @@ func (r *PaymentRepository) ListAdminTransactions(ctx context.Context, limit int
 		limit = 100
 	}
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, recruiter_id, amount_kzt, purpose, status, created_at
+		SELECT id, recruiter_id, provider, amount_kzt, purpose, status, metadata, created_at, completed_at
 		FROM payment_sessions ORDER BY created_at DESC LIMIT $1
 	`, limit)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
-	var list []map[string]interface{}
+	list := make([]map[string]interface{}, 0)
 	for rows.Next() {
 		var id, recruiterID uuid.UUID
 		var amount int
-		var purpose, status string
+		var purpose, status, provider string
+		var meta []byte
 		var createdAt time.Time
-		if err := rows.Scan(&id, &recruiterID, &amount, &purpose, &status, &createdAt); err != nil {
+		var completedAt *time.Time
+		if err := rows.Scan(&id, &recruiterID, &provider, &amount, &purpose, &status, &meta, &createdAt, &completedAt); err != nil {
 			return nil, 0, err
 		}
-		list = append(list, map[string]interface{}{
+		item := map[string]interface{}{
 			"id": id.String(), "recruiter_id": recruiterID.String(),
 			"amount_kzt": amount, "purpose": purpose, "status": status,
+			"provider": provider, "type": purpose,
 			"created_at": createdAt.Format(time.RFC3339),
-		})
+		}
+		if completedAt != nil {
+			item["completed_at"] = completedAt.Format(time.RFC3339)
+		}
+		if len(meta) > 0 {
+			var m map[string]interface{}
+			if json.Unmarshal(meta, &m) == nil {
+				if manual, ok := m["manually_activated"].(bool); ok && manual {
+					item["manually_activated"] = true
+					item["description"] = "Активировано вручную"
+				}
+				if plan, ok := m["plan"].(string); ok {
+					item["plan"] = plan
+				}
+				if pm, ok := m["payment_method"].(string); ok {
+					item["payment_method"] = pm
+				}
+				if reason, ok := m["reason"].(string); ok && item["description"] == nil {
+					item["description"] = reason
+				}
+			}
+		}
+		if item["description"] == nil {
+			item["description"] = purpose
+		}
+		list = append(list, item)
 	}
 	var escrow float64
 	_ = r.pool.QueryRow(ctx, `SELECT COALESCE(SUM(amount_kzt),0) FROM escrow_holds WHERE status = 'held'`).Scan(&escrow)
@@ -287,6 +362,157 @@ func (r *PaymentRepository) GetPublicStats(ctx context.Context) (map[string]int6
 			}
 		}
 	}
+	return out, nil
+}
+
+func (r *PaymentRepository) AdminAnalytics(ctx context.Context, from, to time.Time) (map[string]interface{}, error) {
+	periodDays := to.Sub(from)
+	if periodDays <= 0 {
+		periodDays = 30 * 24 * time.Hour
+	}
+	prevFrom := from.Add(-periodDays)
+	prevTo := from
+
+	out := map[string]interface{}{
+		"period": map[string]string{
+			"from": from.Format(time.RFC3339),
+			"to":   to.Format(time.RFC3339),
+		},
+	}
+
+	var newStudents, prevStudents int64
+	_ = r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM users WHERE role = 'student' AND created_at >= $1 AND created_at < $2
+	`, from, to).Scan(&newStudents)
+	_ = r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM users WHERE role = 'student' AND created_at >= $1 AND created_at < $2
+	`, prevFrom, prevTo).Scan(&prevStudents)
+	growth := 0.0
+	if prevStudents > 0 {
+		growth = float64(newStudents-prevStudents) / float64(prevStudents) * 100
+	} else if newStudents > 0 {
+		growth = 100
+	}
+	out["students"] = map[string]interface{}{
+		"new_count": newStudents, "prev_period_count": prevStudents, "growth_percent": growth,
+	}
+
+	sourceRows, _ := r.pool.Query(ctx, `
+		SELECT COALESCE(registration_source, 'direct'), COUNT(*)
+		FROM users WHERE role = 'student' AND created_at >= $1 AND created_at < $2
+		GROUP BY registration_source ORDER BY COUNT(*) DESC
+	`, from, to)
+	bySource := make([]map[string]interface{}, 0)
+	if sourceRows != nil {
+		defer sourceRows.Close()
+		for sourceRows.Next() {
+			var src string
+			var cnt int64
+			if sourceRows.Scan(&src, &cnt) == nil {
+				bySource = append(bySource, map[string]interface{}{"source": src, "count": cnt})
+			}
+		}
+	}
+	if students, ok := out["students"].(map[string]interface{}); ok {
+		students["by_source"] = bySource
+	}
+
+	var paidNow, paidPrev int64
+	_ = r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM recruiter_profiles
+		WHERE plan <> 'free' AND (plan_expires_at IS NULL OR plan_expires_at > $1)
+	`, to).Scan(&paidNow)
+	_ = r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM recruiter_profiles
+		WHERE plan <> 'free' AND (plan_expires_at IS NULL OR plan_expires_at > $1)
+	`, prevTo).Scan(&paidPrev)
+	change := 0.0
+	if paidPrev > 0 {
+		change = float64(paidNow-paidPrev) / float64(paidPrev) * 100
+	} else if paidNow > 0 {
+		change = -100
+	}
+	planRows, _ := r.pool.Query(ctx, `
+		SELECT plan, COUNT(*) FROM recruiter_profiles
+		WHERE plan <> 'free' AND (plan_expires_at IS NULL OR plan_expires_at > NOW())
+		GROUP BY plan
+	`)
+	byPlan := make([]map[string]interface{}, 0)
+	if planRows != nil {
+		defer planRows.Close()
+		for planRows.Next() {
+			var plan string
+			var cnt int64
+			if planRows.Scan(&plan, &cnt) == nil {
+				byPlan = append(byPlan, map[string]interface{}{"plan": plan, "count": cnt})
+			}
+		}
+	}
+	out["paid_recruiters"] = map[string]interface{}{
+		"current_count": paidNow, "prev_period_count": paidPrev, "change_percent": change, "by_plan": byPlan,
+	}
+
+	topRows, _ := r.pool.Query(ctx, `
+		SELECT v.id, v.location, COUNT(a.id) AS apps
+		FROM applications a
+		JOIN vacancies v ON v.id = a.vacancy_id
+		WHERE a.created_at >= $1 AND a.created_at < $2
+		GROUP BY v.id, v.location
+		ORDER BY apps DESC LIMIT 10
+	`, from, to)
+	topVacancies := make([]map[string]interface{}, 0)
+	if topRows != nil {
+		defer topRows.Close()
+		for topRows.Next() {
+			var id uuid.UUID
+			var city string
+			var apps int64
+			if topRows.Scan(&id, &city, &apps) == nil {
+				topVacancies = append(topVacancies, map[string]interface{}{
+					"id": id.String(), "title": "Vacancy", "applications": apps, "city": city,
+				})
+			}
+		}
+	}
+	out["top_vacancies"] = topVacancies
+
+	cityRows, _ := r.pool.Query(ctx, `
+		SELECT COALESCE(NULLIF(TRIM(v.location), ''), 'Не указан') AS city,
+		       COUNT(DISTINCT a.student_id) AS students,
+		       COUNT(a.id) AS applications,
+		       COUNT(DISTINCT v.id) FILTER (WHERE v.status = 'active') AS active_vacancies
+		FROM applications a
+		JOIN vacancies v ON v.id = a.vacancy_id
+		WHERE a.created_at >= $1 AND a.created_at < $2
+		GROUP BY city ORDER BY applications DESC LIMIT 15
+	`, from, to)
+	cityActivity := make([]map[string]interface{}, 0)
+	if cityRows != nil {
+		defer cityRows.Close()
+		for cityRows.Next() {
+			var city string
+			var students, apps, vacs int64
+			if cityRows.Scan(&city, &students, &apps, &vacs) == nil {
+				cityActivity = append(cityActivity, map[string]interface{}{
+					"city": city, "students": students, "applications": apps, "active_vacancies": vacs,
+				})
+			}
+		}
+	}
+	out["city_activity"] = cityActivity
+
+	var totalRev, subRev float64
+	_ = r.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(amount_kzt),0) FROM payment_sessions
+		WHERE status = 'completed' AND completed_at >= $1 AND completed_at < $2
+	`, from, to).Scan(&totalRev)
+	_ = r.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM((metadata->>'amount_kzt')::float),0) FROM billing_events
+		WHERE event_type IN ('subscription_activated','subscribe_starter','subscribe_business','subscribe_corporate','subscribe_pro')
+		  AND created_at >= $1 AND created_at < $2
+	`, from, to).Scan(&subRev)
+	out["revenue"] = map[string]interface{}{"total_kzt": totalRev, "subscriptions_kzt": subRev}
+
 	return out, nil
 }
 

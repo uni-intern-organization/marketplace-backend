@@ -16,17 +16,17 @@ import (
 )
 
 type AuthHandler struct {
-	userRepo     *repository.UserRepository
-	authSecRepo  *repository.AuthSecurityRepository
-	auditRepo    *repository.AuditRepository
-	emailSvc     *email.Service
-	aesKey       []byte
-	jwtSecret    string
-	expireHours  int
-	refreshDays  int
-	rateLimit    config.RateLimitConfig
-	frontendURL  string
-	appName      string
+	userRepo    *repository.UserRepository
+	authSecRepo *repository.AuthSecurityRepository
+	auditRepo   *repository.AuditRepository
+	emailSvc    *email.Service
+	aesKey      []byte
+	jwtSecret   string
+	expireHours int
+	refreshDays int
+	rateLimit   config.RateLimitConfig
+	frontendURL string
+	appName     string
 }
 
 func NewAuthHandler(
@@ -134,14 +134,27 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 		return
 	}
-	user, err := h.userRepo.Create(r.Context(), req.Email, hash, req.Role)
+	source := r.URL.Query().Get("utm_source")
+	if source == "" {
+		source = "direct"
+	}
+	meta := map[string]interface{}{}
+	if utm := r.URL.Query().Get("utm_campaign"); utm != "" {
+		meta["utm_campaign"] = utm
+	}
+	var user *model.User
+	if source != "direct" || len(meta) > 0 {
+		user, err = h.userRepo.CreateWithSource(r.Context(), req.Email, hash, req.Role, source, meta)
+	} else {
+		user, err = h.userRepo.Create(r.Context(), req.Email, hash, req.Role)
+	}
 	if err != nil {
 		RespondError(w, http.StatusInternalServerError, "failed to create user", err)
 		return
 	}
 	_ = h.emailSvc.SendWelcome(user.Email)
 	actor := user.ID
-	_ = h.auditRepo.Log(r.Context(), &actor, "register", "user", &user.ID, map[string]interface{}{"role": req.Role})
+	_ = h.auditRepo.Log(r.Context(), &actor, "register", "user", &user.ID, map[string]interface{}{"role": req.Role, "source": source})
 	h.issueTokens(w, r, user)
 }
 
@@ -219,6 +232,10 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	user, err := h.userRepo.GetByID(r.Context(), userID)
 	if err != nil {
 		http.Error(w, `{"error":"user not found"}`, http.StatusUnauthorized)
+		return
+	}
+	if user.IsBlocked {
+		http.Error(w, `{"error":"account blocked"}`, http.StatusForbidden)
 		return
 	}
 	h.issueTokens(w, r, user)

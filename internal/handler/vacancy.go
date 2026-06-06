@@ -15,14 +15,15 @@ import (
 )
 
 type VacancyHandler struct {
-	vacancyRepo *repository.VacancyRepository
-	userRepo    *repository.UserRepository
-	billingSvc  *billing.Service
-	aesKey      []byte
+	vacancyRepo      *repository.VacancyRepository
+	userRepo         *repository.UserRepository
+	verificationRepo *repository.VerificationRepository
+	billingSvc       *billing.Service
+	aesKey           []byte
 }
 
-func NewVacancyHandler(vacancyRepo *repository.VacancyRepository, userRepo *repository.UserRepository, billingSvc *billing.Service, aesKey []byte) *VacancyHandler {
-	return &VacancyHandler{vacancyRepo: vacancyRepo, userRepo: userRepo, billingSvc: billingSvc, aesKey: aesKey}
+func NewVacancyHandler(vacancyRepo *repository.VacancyRepository, userRepo *repository.UserRepository, verificationRepo *repository.VerificationRepository, billingSvc *billing.Service, aesKey []byte) *VacancyHandler {
+	return &VacancyHandler{vacancyRepo: vacancyRepo, userRepo: userRepo, verificationRepo: verificationRepo, billingSvc: billingSvc, aesKey: aesKey}
 }
 
 type CreateVacancyRequest struct {
@@ -51,10 +52,11 @@ type VacancyResponse struct {
 	ExpiresAt          *string `json:"expires_at,omitempty"`
 	IsFeatured         bool    `json:"is_featured"`
 	FeaturedUntil      *string `json:"featured_until,omitempty"`
+	CompanyVerified    bool    `json:"company_verified"`
 	CreatedAt          string  `json:"created_at"`
 }
 
-func vacancyToResponse(v *model.Vacancy, aesKey []byte) VacancyResponse {
+func vacancyToResponse(v *model.Vacancy, aesKey []byte, companyVerified ...bool) VacancyResponse {
 	resp := VacancyResponse{
 		ID:                 v.ID.String(),
 		RecruiterID:        v.RecruiterID.String(),
@@ -88,6 +90,9 @@ func vacancyToResponse(v *model.Vacancy, aesKey []byte) VacancyResponse {
 	if v.FeaturedUntil != nil && resp.IsFeatured {
 		s := v.FeaturedUntil.Format(time.RFC3339)
 		resp.FeaturedUntil = &s
+	}
+	if len(companyVerified) > 0 {
+		resp.CompanyVerified = companyVerified[0]
 	}
 	return resp
 }
@@ -193,10 +198,18 @@ func (h *VacancyHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := make([]VacancyResponse, 0, len(list))
 	for i := range list {
-		resp = append(resp, vacancyToResponse(&list[i], h.aesKey))
+		verified, _ := h.isCompanyVerified(r, list[i].RecruiterID)
+		resp = append(resp, vacancyToResponse(&list[i], h.aesKey, verified))
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+func (h *VacancyHandler) isCompanyVerified(r *http.Request, recruiterID uuid.UUID) (bool, error) {
+	if h.verificationRepo == nil {
+		return false, nil
+	}
+	return h.verificationRepo.IsApproved(r.Context(), recruiterID)
 }
 
 func (h *VacancyHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -225,8 +238,9 @@ func (h *VacancyHandler) Get(w http.ResponseWriter, r *http.Request) {
 		viewerID = &claims.UserID
 	}
 	_ = h.vacancyRepo.RecordView(r.Context(), id, viewerID)
+	verified, _ := h.isCompanyVerified(r, v.RecruiterID)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(vacancyToResponse(v, h.aesKey))
+	json.NewEncoder(w).Encode(vacancyToResponse(v, h.aesKey, verified))
 }
 
 func (h *VacancyHandler) Renew(w http.ResponseWriter, r *http.Request) {
@@ -245,7 +259,9 @@ func (h *VacancyHandler) Renew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"id required"}`, http.StatusBadRequest)
 		return
 	}
-	var req struct{ ListingTier string `json:"listing_tier"` }
+	var req struct {
+		ListingTier string `json:"listing_tier"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	tier := model.ListingTierBasic
 	switch req.ListingTier {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -59,6 +60,57 @@ func (r *AuthSecurityRepository) RecordLoginAttempt(ctx context.Context, email, 
 		INSERT INTO login_attempts (email, ip_address, success) VALUES ($1, $2, $3)
 	`, email, ip, success)
 	return err
+}
+
+func (r *AuthSecurityRepository) ListLoginAttempts(ctx context.Context, ip, email string, limit int) ([]map[string]interface{}, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	var rows pgx.Rows
+	var err error
+	switch {
+	case ip != "":
+		rows, err = r.pool.Query(ctx, `
+			SELECT la.email, la.ip_address, la.success, la.created_at, u.id AS user_id
+			FROM login_attempts la
+			LEFT JOIN users u ON u.email = la.email
+			WHERE la.ip_address = $1
+			ORDER BY la.created_at DESC LIMIT $2
+		`, ip, limit)
+	case email != "":
+		rows, err = r.pool.Query(ctx, `
+			SELECT la.email, la.ip_address, la.success, la.created_at, u.id AS user_id
+			FROM login_attempts la
+			LEFT JOIN users u ON u.email = la.email
+			WHERE la.email ILIKE $1
+			ORDER BY la.created_at DESC LIMIT $2
+		`, "%"+email+"%", limit)
+	default:
+		return []map[string]interface{}{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []map[string]interface{}
+	for rows.Next() {
+		var em, ipAddr string
+		var success bool
+		var createdAt time.Time
+		var userID *uuid.UUID
+		if err := rows.Scan(&em, &ipAddr, &success, &createdAt, &userID); err != nil {
+			return nil, err
+		}
+		item := map[string]interface{}{
+			"email": em, "ip_address": ipAddr, "success": success,
+			"created_at": createdAt.Format(time.RFC3339),
+		}
+		if userID != nil {
+			item["user_id"] = userID.String()
+		}
+		list = append(list, item)
+	}
+	return list, rows.Err()
 }
 
 func (r *AuthSecurityRepository) FailedLoginCount(ctx context.Context, email string, since time.Time) (int, error) {

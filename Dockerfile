@@ -1,22 +1,20 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:1.23-alpine AS build
 
-WORKDIR /app
+RUN apk add --no-cache git ca-certificates
 
+WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /marketplace-api ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /api ./cmd/api
 
-FROM alpine:3.19
+FROM alpine:3.20
 
-RUN apk --no-cache add ca-certificates
+RUN apk add --no-cache ca-certificates tzdata wget
 
 WORKDIR /app
-
-COPY --from=builder /marketplace-api .
-COPY migrations ./migrations
+COPY --from=build /api /app/api
 
 EXPOSE 8080
-
-CMD ["./marketplace-api"]
+CMD ["/app/api"]

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/uni-intern-organization/marketplace-backend/internal/middleware"
@@ -181,10 +182,28 @@ type AdminHandler struct {
 	auditRepo   *repository.AuditRepository
 	billingRepo *repository.BillingRepository
 	paymentRepo *repository.PaymentRepository
+	authSecRepo *repository.AuthSecurityRepository
+	vacancyRepo *repository.VacancyRepository
+	staffRepo   *repository.StaffRepository
+	notifier    *notifier.Service
 }
 
-func NewAdminHandler(userRepo *repository.UserRepository, walletRepo *repository.WalletRepository, auditRepo *repository.AuditRepository, billingRepo *repository.BillingRepository, paymentRepo *repository.PaymentRepository) *AdminHandler {
-	return &AdminHandler{userRepo: userRepo, walletRepo: walletRepo, auditRepo: auditRepo, billingRepo: billingRepo, paymentRepo: paymentRepo}
+func NewAdminHandler(
+	userRepo *repository.UserRepository,
+	walletRepo *repository.WalletRepository,
+	auditRepo *repository.AuditRepository,
+	billingRepo *repository.BillingRepository,
+	paymentRepo *repository.PaymentRepository,
+	authSecRepo *repository.AuthSecurityRepository,
+	vacancyRepo *repository.VacancyRepository,
+	staffRepo *repository.StaffRepository,
+	notifierSvc *notifier.Service,
+) *AdminHandler {
+	return &AdminHandler{
+		userRepo: userRepo, walletRepo: walletRepo, auditRepo: auditRepo,
+		billingRepo: billingRepo, paymentRepo: paymentRepo, authSecRepo: authSecRepo,
+		vacancyRepo: vacancyRepo, staffRepo: staffRepo, notifier: notifierSvc,
+	}
 }
 
 func (h *AdminHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
@@ -286,6 +305,9 @@ func (h *AdminHandler) ListTransactions(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, `{"error":"failed"}`, http.StatusInternalServerError)
 		return
 	}
+	if list == nil {
+		list = []map[string]interface{}{}
+	}
 	jsonOK(w, map[string]interface{}{"transactions": list, "escrow_held_kzt": escrow})
 }
 
@@ -309,4 +331,133 @@ func (h *AdminHandler) PatchTariff(w http.ResponseWriter, r *http.Request) {
 		"basic": req.BasicKZT, "standard": req.StandardKZT, "premium": req.PremiumKZT,
 	})
 	jsonOK(w, map[string]string{"status": "ok"})
+}
+
+func (h *AdminHandler) LoginAttempts(w http.ResponseWriter, r *http.Request) {
+	if h.authSecRepo == nil {
+		jsonOK(w, map[string]interface{}{"attempts": []interface{}{}})
+		return
+	}
+	ip := r.URL.Query().Get("ip")
+	email := r.URL.Query().Get("email")
+	list, err := h.authSecRepo.ListLoginAttempts(r.Context(), ip, email, 100)
+	if err != nil {
+		http.Error(w, `{"error":"failed"}`, http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]interface{}{"attempts": list})
+}
+
+func (h *AdminHandler) RelatedUsers(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.URL.Query().Get("user_id"))
+	if err != nil {
+		http.Error(w, `{"error":"user_id required"}`, http.StatusBadRequest)
+		return
+	}
+	related, err := h.userRepo.FindRelatedUsers(r.Context(), id, 20)
+	if err != nil {
+		http.Error(w, `{"error":"failed"}`, http.StatusInternalServerError)
+		return
+	}
+	activeVacancies := 0
+	if h.vacancyRepo != nil {
+		activeVacancies, _ = h.vacancyRepo.CountActiveByRecruiter(r.Context(), id)
+	}
+	jsonOK(w, map[string]interface{}{
+		"related": related, "active_vacancies": activeVacancies,
+	})
+}
+
+func (h *AdminHandler) EnforceUser(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetClaims(r.Context())
+	var req struct {
+		PrimaryUserID              string   `json:"primary_user_id"`
+		BlockUserIDs               []string `json:"block_user_ids"`
+		ArchiveVacancyRecruiterIDs []string `json:"archive_vacancy_recruiter_ids"`
+		WarningUserID              string   `json:"warning_user_id"`
+		WarningMessage             string   `json:"warning_message"`
+		Reason                     string   `json:"reason"`
+		StaffTaskID                string   `json:"staff_task_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid body"}`, http.StatusBadRequest)
+		return
+	}
+	if req.Reason == "" {
+		req.Reason = "policy_violation"
+	}
+	actor := claims.UserID
+
+	for _, uidStr := range req.BlockUserIDs {
+		uid, err := uuid.Parse(uidStr)
+		if err != nil {
+			continue
+		}
+		_ = h.userRepo.SetBlocked(r.Context(), uid, true)
+		_ = h.userRepo.InsertUserBlock(r.Context(), uid, actor, req.Reason)
+		if h.authSecRepo != nil {
+			_ = h.authSecRepo.RevokeAllUserTokens(r.Context(), uid)
+		}
+		_ = h.auditRepo.Log(r.Context(), &actor, "enforce_block_user", "user", &uid, map[string]interface{}{
+			"reason": req.Reason, "primary_user_id": req.PrimaryUserID,
+		})
+	}
+
+	for _, ridStr := range req.ArchiveVacancyRecruiterIDs {
+		rid, err := uuid.Parse(ridStr)
+		if err != nil || h.vacancyRepo == nil {
+			continue
+		}
+		n, _ := h.vacancyRepo.ArchiveActiveByRecruiter(r.Context(), rid)
+		_ = h.auditRepo.Log(r.Context(), &actor, "enforce_archive_vacancies", "recruiter", &rid, map[string]interface{}{
+			"archived_count": n, "reason": req.Reason,
+		})
+	}
+
+	if req.WarningUserID != "" && req.WarningMessage != "" {
+		wid, err := uuid.Parse(req.WarningUserID)
+		if err == nil && h.notifier != nil {
+			h.notifier.Notify(r.Context(), wid, "admin_warning", "Предупреждение от администратора", req.WarningMessage,
+				map[string]interface{}{"reason": req.Reason})
+			_ = h.auditRepo.Log(r.Context(), &actor, "enforce_warning", "user", &wid, map[string]interface{}{
+				"message": req.WarningMessage, "reason": req.Reason,
+			})
+		}
+	}
+
+	if req.StaffTaskID != "" && h.staffRepo != nil {
+		if tid, err := uuid.Parse(req.StaffTaskID); err == nil {
+			_ = h.staffRepo.ResolveStaffTask(r.Context(), tid, actor, "enforcement applied: "+req.Reason)
+		}
+	}
+
+	jsonOK(w, map[string]string{"status": "ok"})
+}
+
+func (h *AdminHandler) Analytics(w http.ResponseWriter, r *http.Request) {
+	if h.paymentRepo == nil {
+		jsonOK(w, map[string]interface{}{})
+		return
+	}
+	fromStr := r.URL.Query().Get("from")
+	toStr := r.URL.Query().Get("to")
+	now := time.Now()
+	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	to := now
+	if fromStr != "" {
+		if t, err := time.Parse("2006-01-02", fromStr); err == nil {
+			from = t
+		}
+	}
+	if toStr != "" {
+		if t, err := time.Parse("2006-01-02", toStr); err == nil {
+			to = t.Add(24*time.Hour - time.Second)
+		}
+	}
+	stats, err := h.paymentRepo.AdminAnalytics(r.Context(), from, to)
+	if err != nil {
+		http.Error(w, `{"error":"failed"}`, http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, stats)
 }

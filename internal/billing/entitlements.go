@@ -96,7 +96,7 @@ func (s *Service) GetRecruiterEntitlements(ctx context.Context, userID uuid.UUID
 	if role == model.RoleAdmin {
 		return Entitlements{
 			Plan: model.RecruiterPlanCorporate, MaxVacancies: -1, IsPro: true,
-			Features: planFeatures(model.RecruiterPlanCorporate),
+			Features:  planFeatures(model.RecruiterPlanCorporate),
 			CanSearch: true, CanInvite: true, CanMatch: true, CanAnalytics: true,
 			CanCreateVacancy: true, PublicationsQuota: -1, CanUsePublicationQuota: true,
 			InvitationsQuota: -1, PremiumCreditCost: 3,

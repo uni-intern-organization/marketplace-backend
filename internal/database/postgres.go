@@ -16,7 +16,6 @@ func ConnectDatabase(dsn string) {
 		log.Fatal("Failed to connect to database:", err)
 	}
 
-	// Авто-миграция (Кестелерді автоматты жасау)
 	db.AutoMigrate(&models.User{}, &models.Internship{})
 
 	DB = db
